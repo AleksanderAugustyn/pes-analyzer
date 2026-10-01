@@ -5,7 +5,7 @@ A tour of `pes_analyzer` for contributors. Read this before modifying the Rust k
 ## Repo layout
 
 ```
-pes_analyzer/
+pes-analyzer/
 ├── Cargo.toml            — Rust crate manifest
 ├── pyproject.toml        — maturin build config
 ├── src/                  — Rust sources
