@@ -32,8 +32,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/AleksanderAugustyn/pes_analyzer"
-Repository = "https://github.com/AleksanderAugustyn/pes_analyzer"
+Homepage = "https://github.com/AleksanderAugustyn/pes-analyzer"
+Repository = "https://github.com/AleksanderAugustyn/pes-analyzer"
 
 [tool.maturin]
 python-source = "python"
