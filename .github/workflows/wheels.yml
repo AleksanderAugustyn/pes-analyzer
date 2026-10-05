@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check that the tag matches Cargo.toml and pyproject.toml
         # `version` is duplicated by hand (Cargo.toml is the source of truth);
         # a tag that disagrees with either would publish the wrong number.
@@ -31,7 +31,7 @@ jobs:
         with:
           command: sdist
           args: --out dist_sdist
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
@@ -51,21 +51,21 @@ jobs:
         run: |
           mkdir dist
           cp wheelhouse/*.whl dist_sdist/*.tar.gz dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
   release:
-    needs: build
+    needs: [build, pypi]   # no Release unless the PyPI upload succeeded
     runs-on: ubuntu-24.04
     permissions:
       contents: write        # create/upload the Release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
   pypi:
@@ -77,7 +77,7 @@ jobs:
     permissions:
       id-token: write        # PyPI Trusted Publishing (OIDC)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
