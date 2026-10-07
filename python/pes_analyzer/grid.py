@@ -158,3 +158,110 @@ def path_length(indices: npt.ArrayLike, axes: Axes = None) -> npt.NDArray[np.flo
     if idx.shape[0] > 1:
         np.cumsum(np.linalg.norm(np.diff(coords, axis=0), axis=1), out=out[1:])
     return out
+
+
+def _normalize_keep(keep, ndim: int) -> tuple[int, ...]:
+    keep_t = (keep,) if isinstance(keep, (int, np.integer)) else tuple(keep)
+    if not all(isinstance(k, (int, np.integer)) for k in keep_t):
+        raise ValueError("keep must hold integer axis indices")
+    keep_t = tuple(int(k) for k in keep_t)
+    if not 1 <= len(keep_t) <= ndim - 1:
+        raise ValueError(f"keep must name 1 to {ndim - 1} axes, got {len(keep_t)}")
+    if any(not 0 <= k < ndim for k in keep_t) or len(set(keep_t)) != len(keep_t):
+        raise ValueError(f"keep must hold distinct axis indices in [0, {ndim}), got {keep_t}")
+    return keep_t
+
+
+def minimize_grid(
+    energies: npt.ArrayLike,
+    keep: int | Sequence[int],
+    *,
+    threads: int | None = None,
+) -> tuple[npt.NDArray, npt.NDArray[np.intp]]:
+    """Minimise an N-D grid over every axis not in ``keep``.
+
+    Returns ``(minimum, index)``: ``minimum`` has the kept axes in the order
+    of ``keep`` and the dtype of ``energies`` (``NaN`` where a column has no
+    valid cell); ``index`` has shape ``minimum.shape + (N,)`` and holds the
+    full N-D index of the minimising cell in the original axis order, or
+    ``-1`` in every entry where there is none. ``NaN`` cells are ignored, as
+    in ``np.nanmin``. Ties go to the first cell in C order over the hidden
+    axes. Work is split into slabs
+    along the first kept axis on ``threads`` workers (default
+    ``os.cpu_count()``); the result does not depend on ``threads``.
+    """
+    e = np.asarray(energies)
+    if not np.issubdtype(e.dtype, np.floating):
+        raise ValueError("energies must be a floating-point array")
+    n = e.ndim
+    if n < 2:
+        raise ValueError("energies must have at least 2 axes")
+    keep_t = _normalize_keep(keep, n)
+    if threads is None:
+        threads = os.cpu_count() or 1
+    if not isinstance(threads, (int, np.integer)) or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    hidden = tuple(a for a in range(n) if a not in keep_t)
+    kept_shape = tuple(e.shape[k] for k in keep_t)
+    hidden_shape = tuple(e.shape[h] for h in hidden)
+    moved = np.transpose(e, keep_t + hidden)          # a view: kept axes first, hidden axes in original order
+    minimum = np.full(kept_shape, np.nan, dtype=e.dtype)
+    index = np.full(kept_shape + (n,), -1, dtype=np.intp)
+    rest = np.indices(kept_shape[1:], dtype=np.intp)
+
+    def work(i: int) -> None:
+        flat = moved[i].reshape(kept_shape[1:] + (-1,))                       # copies if not contiguous
+        isnan = np.isnan(flat)
+        arg = np.asarray(np.where(isnan, np.inf, flat).argmin(axis=-1))
+        val = np.take_along_axis(flat, arg[..., None], axis=-1)[..., 0]
+        # a column whose only valid cells are +inf: the argmin above may have landed on a
+        # NaN cell; take its first non-NaN cell instead, as np.nanmin would
+        inf_only = np.asarray(np.isnan(val) & ~isnan.all(axis=-1))
+        if inf_only.any():
+            arg = np.where(inf_only, isnan.argmin(axis=-1), arg)
+            val = np.take_along_axis(flat, arg[..., None], axis=-1)[..., 0]
+        valid = np.asarray(~np.isnan(val))
+        out_idx = index[i]
+        out_idx[..., keep_t[0]] = i
+        for j, k in enumerate(keep_t[1:]):
+            out_idx[..., k] = rest[j]
+        for h, hid in zip(hidden, np.unravel_index(arg, hidden_shape)):
+            out_idx[..., h] = hid
+        out_idx[~valid] = -1
+        minimum[i] = val
+
+    with ThreadPoolExecutor(max_workers=max(1, min(int(threads), kept_shape[0]))) as pool:
+        list(pool.map(work, range(kept_shape[0])))
+    return minimum, index
+
+
+def jump_map(index: npt.ArrayLike, keep: int | Sequence[int]) -> npt.NDArray[np.float64]:
+    """How far the minimiser moves between neighbouring map points, in cells.
+
+    For each map point with a minimiser: the largest Chebyshev distance over
+    the hidden axes between its minimiser and that of any von Neumann map
+    neighbour with one; ``0.0`` if no neighbour has one; ``NaN`` where the
+    point itself has none. A value of at most 1 means the map is continuous
+    there to within one hidden step.
+    """
+    idx = np.asarray(index)
+    if idx.ndim < 2 or not np.issubdtype(idx.dtype, np.integer):
+        raise ValueError("index must be an integer array of shape kept_shape + (N,)")
+    n = idx.shape[-1]
+    keep_t = _normalize_keep(keep, n)
+    if idx.ndim != len(keep_t) + 1:
+        raise ValueError("index must have shape kept_shape + (N,)")
+    hid = idx[..., [a for a in range(n) if a not in keep_t]]
+    valid = idx[..., 0] >= 0
+    out = np.zeros(valid.shape, dtype=np.float64)
+    for ax in range(len(keep_t)):
+        lo = [slice(None)] * len(keep_t)
+        hi = list(lo)
+        lo[ax], hi[ax] = slice(0, -1), slice(1, None)
+        lo, hi = tuple(lo), tuple(hi)
+        d = np.abs(hid[hi] - hid[lo]).max(axis=-1).astype(np.float64)
+        d[~(valid[lo] & valid[hi])] = 0.0
+        np.maximum(out[lo], d, out=out[lo])
+        np.maximum(out[hi], d, out=out[hi])
+    out[~valid] = np.nan
+    return out
