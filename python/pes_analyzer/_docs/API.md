@@ -8,7 +8,7 @@ This is the canonical contract for the three public functions of `pes_analyzer`.
 - N-D indices are `tuple[int, ...]` in `numpy` axis order.
 - `NaN` cells are treated as masked. They are impassable for saddle search and excluded from minimum search.
 - Supported dimensionality: N ∈ [2, 7]. The Rust kernels enforce this at the boundary.
-- Threading: the `find_minima_grid` / `find_maxima_grid` / `find_extrema_grid` scans and the flood sort run on the rayon global pool (all cores by default; set `RAYON_NUM_THREADS` to limit). Results never depend on the thread count. Run one analysis per process at a time — concurrent floods in one process each retain their grid arrays and share the pool.
+- Threading: the `find_minima_grid` / `find_maxima_grid` / `find_extrema_grid` scans and the flood sort run on the rayon global pool (all cores by default; set `RAYON_NUM_THREADS` to limit). Results never depend on the thread count. Run one analysis per process at a time — concurrent floods in one process each retain their grid arrays and share the pool. The three path kernels added in 0.11.0 (steepest descent, least action, minimum ascent) are sequential.
 
 ---
 
@@ -70,6 +70,104 @@ print(axes)
 - **Axis order** follows `coords` insertion order. Swap the dict to swap the axes.
 - **Duplicate `(coords, ...)` rows**: last-write-wins.
 - **Single-value axes are NOT squeezed.** If one axis has only one unique value, the output retains that length-1 axis. The caller is responsible for filtering active axes before calling.
+
+---
+
+## `minimize_grid`
+
+```python
+from pes_analyzer.grid import minimize_grid
+
+def minimize_grid(
+    energies: numpy.ndarray,
+    keep: int | Sequence[int],
+    *,
+    threads: int | None = None,
+) -> tuple[numpy.ndarray, numpy.ndarray[intp]]:
+    ...
+```
+
+### Parameters
+
+- **`energies`** — floating array with N ≥ 2 axes, any memory layout. `NaN` cells are ignored.
+- **`keep`** — one axis index or 1 to N−1 distinct axis indices. The output axes follow this order.
+- **`threads`** *(keyword-only)* — workers for the slabs along the first kept axis (default `os.cpu_count()`). The result does not depend on it.
+
+### Returns
+
+- **`minimum`** — shape `tuple(energies.shape[k] for k in keep)`, dtype of `energies`; `NaN` where the column has no valid cell.
+- **`index`** — shape `minimum.shape + (N,)`, dtype `intp`: the full N-D index of the minimising cell in the original axis order, `-1` in every entry where there is none. Ties go to the first cell in C order over the hidden axes.
+
+### Example
+
+```python
+import numpy as np
+from pes_analyzer.grid import jump_map, minimize_grid
+
+energies = np.array([
+    [[3.0, 1.0, 2.0], [0.5, 4.0, 4.0]],
+    [[2.0, 2.0, 0.0], [np.nan, np.nan, np.nan]],
+])                                             # keep axes 0 and 1, minimise over axis 2
+minimum, index = minimize_grid(energies, keep=(0, 1))
+print(minimum)
+# [[1.  0.5]
+#  [0.  nan]]
+print(index[0, 0], index[1, 1])
+# [0 0 1] [-1 -1 -1]
+print(jump_map(index, keep=(0, 1)))
+# [[ 1.  1.]
+#  [ 1. nan]]
+
+valid = index[..., 0] >= 0                     # mask the -1 rows: they would wrap, not fail
+print(energies[tuple(np.moveaxis(index[valid], -1, 0))])
+# [1.  0.5 0. ]
+```
+
+The last lines gather any grid of the same shape at the minimiser. Always mask with `index[..., 0] >= 0` first.
+
+---
+
+## `jump_map`
+
+```python
+from pes_analyzer.grid import jump_map
+
+def jump_map(index: numpy.ndarray, keep: int | Sequence[int]) -> numpy.ndarray[float64]:
+    ...
+```
+
+For each map point with a minimiser: the largest Chebyshev distance, over the hidden axes, between its minimiser and that of any von Neumann map neighbour with one; `0.0` if no neighbour has one; `NaN` where the point itself has none. In cells. A value of at most 1 means the map is continuous there to within one hidden step; larger values mark where the minimiser jumps between valleys that the map cannot show. `index` is the second output of `minimize_grid` with the same `keep`.
+
+---
+
+## Axis coordinates: `index_to_coords`, `path_length`
+
+Every function that needs physical distances takes `axes=`: `None` (index coordinates, unit steps), a mapping `{name: 1-D array}` with N entries in axis order (what `build_dense` returns; names are ignored), or a sequence of N 1-D arrays. Each array must be finite, strictly increasing and as long as its axis; steps may differ between axes and along an axis. The distance between cells is Euclidean in the supplied coordinates; scaling axes of different units to a common one is the caller's job. Functions that do **not** take `axes` (`find_watershed_segmentation`, `find_minimax_path`, `find_iwf_grid`, the extrema functions, `minimize_grid`) give the same output for any coordinates: see `ALGORITHMS.md` § Grids with unequal steps.
+
+```python
+from pes_analyzer.grid import index_to_coords, path_length
+
+def index_to_coords(indices: numpy.ndarray, axes) -> numpy.ndarray[float64]: ...   # (..., N) -> (..., N)
+def path_length(indices: numpy.ndarray, axes=None) -> numpy.ndarray[float64]: ...  # (K, N) -> (K,) cumulative
+```
+
+`index_to_coords` raises `IndexError` for an index outside an axis, including the `-1` rows of `minimize_grid`. `path_length` starts at 0 and does not require consecutive rows to be neighbours.
+
+```python
+import numpy as np
+from pes_analyzer.grid import index_to_coords, path_length
+
+axes = {"x": np.array([0.0, 1.0, 3.0]), "y": np.array([10.0, 20.0, 40.0, 80.0])}
+path = np.array([[0, 0], [1, 1], [2, 3]])
+print(index_to_coords(path, axes))
+# [[ 0. 10.]
+#  [ 1. 20.]
+#  [ 3. 80.]]
+print(path_length(path, axes))
+# [ 0.         10.04987562 70.0831997 ]
+print(path_length(path))
+# [0.         1.41421356 3.65028154]
+```
 
 ---
 
@@ -401,6 +499,19 @@ print(ws.labels[2, 2], ws.merge_table)
 
 ---
 
+## Path kinds
+
+| Function | The path it returns | Needs `end` | Uses step lengths | Default stencil |
+|---|---|---|---|---|
+| `find_minimax_path` | minimises the highest value crossed, and dips to each basin minimum on the way | yes | no | `"von_neumann"` |
+| `find_steepest_descent_path` | follows the largest downward slope from `start` until no neighbour is lower | no | yes | `"moore"` |
+| `find_least_action_path` | minimises ∫ cost ds | yes, cell or mask | yes | `"moore"` |
+| `find_minimum_ascent_path` | minimises the total climb Σ max(ΔE, 0) | yes, cell or mask | only to break ties | `"von_neumann"` |
+
+A kernel whose main result depends on step lengths defaults to Moore, because von Neumann measures length in the Manhattan metric; the others default to von Neumann like the flood kernels. All four return a `(K, N)` `int64` index matrix whose row 0 is `start`, plus a `(K,)` `float64` profile. The three new kernels accept `float32` or `float64` and do their arithmetic in `float64`.
+
+---
+
 ## `find_minimax_path`
 
 ```python
@@ -478,6 +589,199 @@ assert (idx2 == idx).all()
 - The path is a walk, not necessarily a simple path: connecting two cells of one basin descends both to the basin minimum, which may re-walk a shared chain suffix.
 - For the same `neighborhood`, `max(path_energies)` equals the `find_iwf_grid` saddle energy between the same endpoints (the minimax value is unique; with tied energies the saddle *cell* may differ).
 - Tree mode validates the whole `labels` array (O(N), a fraction of a second at 10⁸ cells) before walking; the walk itself is O(K).
+
+---
+
+## `find_steepest_descent_path`
+
+```python
+from pes_analyzer.topology import find_steepest_descent_path
+
+def find_steepest_descent_path(
+    energies: numpy.ndarray[float32 | float64],
+    start: tuple[int, ...],
+    *,
+    axes=None,
+    neighborhood: str = "moore",
+) -> tuple[numpy.ndarray[int64], numpy.ndarray[float64]]:
+    ...
+```
+
+### What it does
+
+From the current cell, the candidates are the stencil neighbours with a strictly lower, non-`NaN` energy. With none the path ends. Otherwise it moves to the candidate with the largest slope (E_current − E_neighbour) / Δs; equal slopes go to the smaller linear index. Consequences:
+
+- Energies decrease strictly: no cell repeats, the path has at most V cells, and the function always returns (K = 1 if `start` has no lower neighbour).
+- The end cell has no strictly lower stencil neighbour. With `"moore"` it is in the output of `find_minima_grid(energies)`, except for a cell whose whole stencil is `NaN`.
+- A flat cell with no strictly lower neighbour ends the path even if the plateau drops further on.
+- With unequal steps the choice follows the physical slope, not the index slope.
+- The end cell need not be the seed of `labels[start]`: labels record the basin a cell first joined in the flood (a merge-tree segmentation), the descent follows the slope.
+- Descents from a saddle are two calls, one from each of the two cells `Watershed.merge_table` records for that merge (`saddle_lin`, `other_lin`). Nothing forces the two to end in different minima.
+
+### Raises
+
+`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` of the wrong length or on a `NaN` cell, invalid `axes` or `neighborhood`; `IndexError` for `start` out of range or negative.
+
+### Example
+
+```python
+import numpy as np
+from pes_analyzer.topology import find_steepest_descent_path
+
+energies = np.full((3, 3), 20.0)
+energies[1, 1], energies[1, 2], energies[2, 1] = 10.0, 8.0, 9.0
+idx, prof = find_steepest_descent_path(energies, (1, 1), neighborhood="von_neumann")
+print(idx.tolist(), prof.tolist())
+# [[1, 1], [1, 2]] [10.0, 8.0]
+
+axes = [np.array([0.0, 1.0, 2.0]), np.array([0.0, 4.0, 8.0])]      # axis 1 steps are four times longer
+idx, prof = find_steepest_descent_path(energies, (1, 1), axes=axes, neighborhood="von_neumann")
+print(idx.tolist(), prof.tolist())
+# [[1, 1], [2, 1]] [10.0, 9.0]
+```
+
+---
+
+## `find_least_action_path`
+
+```python
+from pes_analyzer.topology import find_least_action_path
+
+def find_least_action_path(
+    cost: numpy.ndarray[float32 | float64],
+    start: tuple[int, ...],
+    end: tuple[int, ...] | numpy.ndarray[bool],
+    *,
+    axes=None,
+    neighborhood: str = "moore",
+) -> tuple[numpy.ndarray[int64], numpy.ndarray[float64]] | None:
+    ...
+```
+
+### What it does
+
+Returns the stencil path from `start` to `end` that minimises the action Σ over steps of ½ (cost_a + cost_b) · Δs, the trapezoid rule for ∫ cost ds. `end` is one index or a boolean mask of target cells of the grid shape; the search stops at the first target reached (the one with the least action, then the shortest path). Among paths of equal action the shorter wins. The second output is the cumulative action at each path cell, `0` first and the total last. `None` if no target is reachable. `start` in the target set gives a one-row path.
+
+`cost` is non-negative; `NaN` is a wall. The caller builds it from any function of position:
+
+| `cost` | Path |
+|---|---|
+| `1` | shortest path around the walls |
+| `sqrt(2 B (V − E0))`, clipped at 0 | WKB tunnelling path |
+| `exp(V / T)` | as T → 0 its highest energy tends to the minimax level; as T → ∞ the path tends to the shortest one |
+| the gradient norm ‖∇V‖, e.g. from `np.gradient` with the axis coordinates | for two fixed cells, the minimiser of the geometric Freidlin–Wentzell action of overdamped gradient dynamics with isotropic noise, ∫ ‖∇V‖ ds + (E_end − E_start) |
+
+Two limits: the low-temperature route need not be the route of `find_minimax_path`, which dips to every basin minimum by construction (on a flat grid the least-action path is the direct one whatever T is); and with a mask as `end`, E_end differs between targets, so the cost ‖∇V‖ then minimises ∫ ‖∇V‖ ds alone.
+
+**Grid-metric note.** The minimum is over stencil paths, so a straight line in a general direction becomes a staircase. With equal steps on all axes the Moore staircase is longer than the straight line by at most the factor √(Σⱼ (√j − √(j−1))²) over j = 1…N: 8.2% in 2-D, 12.8% in 3-D, 18.3% in 5-D, 21.8% in 7-D. For von Neumann the factor is √N: 41% in 2-D, 124% in 5-D.
+
+**Tie-break under rounding.** Sums are `float64`. The guarantee is the exact-arithmetic optimum up to rounding of the sums; the length tie-break is exact where partial sums are exactly equal (zero-cost regions), not for totals that become equal only through rounding.
+
+### Raises
+
+`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` or tuple `end` of the wrong length or on a `NaN` cell, a mask of another shape or dtype, non-contiguous or without a `True` cell, any infinite value, any negative cost, invalid `axes` or `neighborhood`; `IndexError` for `start` or a tuple `end` out of range or negative.
+
+### Memory
+
+8 + 8 + 2 bytes per cell (action, length, back-pointer) for the whole grid, plus the heap; about 16 GB at 8.7×10⁸ cells, besides the input array. Sequential.
+
+### Example
+
+```python
+import numpy as np
+from pes_analyzer.topology import find_least_action_path
+
+cost = np.array([[1.0, 1.0, 1.0], [1.0, 100.0, 1.0], [2.0, 2.0, 2.0]])
+idx, action = find_least_action_path(cost, (1, 0), (1, 2), neighborhood="von_neumann")
+print(idx.tolist(), action.tolist())
+# [[1, 0], [0, 0], [0, 1], [0, 2], [1, 2]] [0.0, 1.0, 2.0, 3.0, 4.0]
+
+exit_mask = np.zeros((3, 3), dtype=bool)
+exit_mask[2, :] = True                          # any cell of the last row
+idx, action = find_least_action_path(cost, (1, 0), exit_mask, neighborhood="von_neumann")
+print(idx.tolist(), action.tolist())
+# [[1, 0], [2, 0]] [0.0, 1.5]
+```
+
+---
+
+## `find_minimum_ascent_path`
+
+```python
+from pes_analyzer.topology import find_minimum_ascent_path
+
+def find_minimum_ascent_path(
+    energies: numpy.ndarray[float32 | float64],
+    start: tuple[int, ...],
+    end: tuple[int, ...] | numpy.ndarray[bool],
+    *,
+    axes=None,
+    neighborhood: str = "von_neumann",
+) -> tuple[numpy.ndarray[int64], numpy.ndarray[float64]] | None:
+    ...
+```
+
+### What it does
+
+Returns the stencil path from `start` to `end` that minimises the total ascent Σ over steps of max(E_next − E_current, 0): descents are free, climbs cost what they gain. Among paths of equal ascent the shortest wins; `axes` enter only there. `end`, the mask form, the second output (cumulative climb) and `None` behave as in `find_least_action_path`. Facts:
+
+- Along any path, ascent forward minus ascent backward equals E_end − E_start, so for two cells a and b, ascent(a → b) − ascent(b → a) = E_b − E_a.
+- The total is at least max(E_end − E_start, 0) and at least the minimax level minus E_start. It is zero exactly when a path exists that never climbs.
+- For fixed endpoints Σ |ΔE| = 2 · ascent + E_start − E_end, so the path also minimises the total variation of the energy.
+- It is **not** the Freidlin–Wentzell action. For overdamped gradient dynamics with isotropic noise the geometric action of a path is ∫ ‖∇V‖ ds + (E_end − E_start), at least twice the total ascent with equality only along gradient lines: moving across the slope at constant energy costs action but no ascent. Twice the minimum ascent is a lower bound on that action; the action itself is minimised by `find_least_action_path` with cost ‖∇V‖.
+
+Von Neumann is the default because the weight depends on energies only, as in the flood kernels, and a diagonal step would skip the cells between.
+
+### Raises
+
+As `find_least_action_path`, except that negative energies are allowed.
+
+### Example
+
+```python
+import numpy as np
+from pes_analyzer.topology import find_minimum_ascent_path
+
+energies = np.array([[0.0, 5.0, 0.0], [0.0, 1.0, 0.0]])
+idx, climb = find_minimum_ascent_path(energies, (0, 0), (0, 2))
+print(idx.tolist(), climb.tolist())
+# [[0, 0], [1, 0], [1, 1], [1, 2], [0, 2]] [0.0, 0.0, 1.0, 1.0, 1.0]
+```
+
+The direct route climbs 5; the detour through the second row climbs 1.
+
+---
+
+## `synthetic`
+
+```python
+from pes_analyzer.synthetic import AnalyticSurface, hidden_barrier, muller_brown, separable_wells
+```
+
+Analytic surfaces with exact critical points, for tests and for the data-free example. Each constructor returns an `AnalyticSurface` with `name`, `ndim`, `minima` (`(coords, energy)` ascending by energy), `saddles` (`(coords, energy, (i, j))` ascending by energy, where `i < j` are the positions in `minima` of the two minima the saddle joins along its unstable direction), `__call__(*coords)` on broadcastable arrays, and `sample(axes)` returning a dense C-contiguous `float64` grid on `axes` (mapping or sequence of 1-D arrays, as everywhere).
+
+| Constructor | Surface | Minima | Saddles |
+|---|---|---|---|
+| `muller_brown()` | the 2-D Müller–Brown surface, 1979 parameters, points Newton-refined to ten decimals | 3 | 2 |
+| `separable_wells(ndim, tilts=None)` | Σₐ (xₐ² − 1)² + τₐ s(xₐ), s(u) = (3u − u³)/2, default τₐ = 0.02 · 2ᵃ, each in (0, 8/3) | 2ᴺ at the corners ±1, energy Σ ±τₐ | N · 2ᴺ⁻¹, one axis at 3τₐ/8, each joining the two corners that differ in that axis |
+| `hidden_barrier(b=1.0, h=5.0, t=0.5, w=1.0)` | b (x² − 1)² + w y² + h (z² − 1)² − t s(x) s(z), with 0 < t < min(8·min(b, h)/3, 16√(bh)/9) | 4 | 4 |
+
+`hidden_barrier` is the surface whose barrier a 2-D map hides: minimised over z, the map shows a barrier of b + t (1.5 with the defaults) between the two deep minima, while every route between them has to change z and the real barrier is max(E_x, E_z) + t (5.514 with the defaults). The minimiser's z flips between −1 and +1 across x = 0, which `jump_map` shows as a line of jumps.
+
+```python
+import numpy as np
+from pes_analyzer.grid import minimize_grid
+from pes_analyzer.synthetic import hidden_barrier
+
+surf = hidden_barrier()
+print(surf.minima[0], surf.saddles[-1][0], round(surf.saddles[-1][1], 6), surf.saddles[-1][2])
+# ((-1.0, 0.0, -1.0), -0.5) (1.0, 0.0, -0.0375) 5.014059 (1, 3)
+
+E = surf.sample({"x": np.linspace(-1.5, 1.5, 61), "y": np.linspace(-0.5, 0.5, 21), "z": np.linspace(-1.5, 1.5, 61)})
+minimum, index = minimize_grid(E, keep=(0, 1))
+print(round(float(minimum[30, 10] - minimum[10, 10]), 6))     # the map's barrier between the deep minima
+# 1.5
+```
 
 ---
 
@@ -594,3 +898,8 @@ the end-to-end pipeline these primitives plug into.
 | `ValueError: neighborhood_range must be in [1, 5]` | passed `0` or `> 5` | choose `neighborhood_range ∈ {1, 2, 3, 4, 5}` |
 | `ValueError: confirm_range must be in [1, 5]` | passed `0` or `> 5` | choose `confirm_range ∈ {1, 2, 3, 4, 5}` or `None` |
 | `ValueError: confirm_range (c) must be >= neighborhood_range (n)` | `confirm_range < neighborhood_range` | raise `confirm_range` or lower `neighborhood_range` (most callers want `neighborhood_range=1, confirm_range=R`) |
+| `ValueError: end mask has no True cell` | empty target set | set at least one `True` cell, or pass an index tuple |
+| `ValueError: cost array contains a negative value` | `find_least_action_path` with a negative cost | clip the cost at 0 (`np.clip(c, 0, None)`) |
+| `ValueError: ... contains an infinite value` | `±inf` in the input of a search kernel | replace with `NaN` (a wall) or a finite value |
+| `ValueError: axis 2 must be strictly increasing` | descending or repeated axis coordinates | sort the axis, or pass the `axes` dict `build_dense` returned |
+| `IndexError: index out of bounds for axis 0 with size 3` from `index_to_coords` | a `-1` row of `minimize_grid` | mask with `index[..., 0] >= 0` first |

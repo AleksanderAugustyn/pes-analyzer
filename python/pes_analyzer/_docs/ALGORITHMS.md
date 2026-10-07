@@ -110,9 +110,32 @@ All inputs may come from Python, so every step is bounds-checked; inconsistencie
 
 **`NaN` handling.** As everywhere: NaN cells are excluded from the sort and act as walls. Disconnected endpoints return `None`; NaN at an endpoint is a `ValueError` raised by the wrapper.
 
+## `find_steepest_descent_path`
+
+Greedy descent on the stencil graph (`src/topology/steepest.rs`). From the current cell take every in-bounds stencil neighbour with a strictly lower non-`NaN` energy, compute the slope (E_current − E_neighbour) / Δs with Δs from `common::metric::StepMetric` (unit steps, or the Euclidean distance in the supplied `axes`), move to the largest slope, smaller linear index on ties, stop when there is no candidate. Energies decrease strictly, so the walk is a simple path of at most V cells. O(K · S) time for a K-cell path and stencil size S; no grid-sized allocation.
+
+Relation to the flood: the minimax path descends along flood parents (the first processed neighbour), which guarantees a descent into the basin seed; the steepest descent follows the slope and may end in a different local minimum than the seed of the start cell's label.
+
+## `find_least_action_path` and `find_minimum_ascent_path`
+
+One Dijkstra kernel (`src/topology/dijkstra.rs`) with a step-weight rule:
+
+| Rule | Input array | Weight of the step u → v |
+|---|---|---|
+| cost integral (`find_least_action_path`) | `cost` | ½ (cost_u + cost_v) · Δs(u, v) |
+| ascent (`find_minimum_ascent_path`) | `energies` | max(E_v − E_u, 0) |
+
+Each cell carries the key (A, L): the sum of weights and the length Σ Δs of the best path found to it. Keys compare lexicographically; in exact arithmetic this is Dijkstra on an ordered pair of non-negative sums, so A is the smallest weight over all stencil paths from the start and L the smallest length among the paths that attain it. The heap is ordered by (A, L, linear index), so the pop order is fully determined and the result never depends on the thread count (the kernel is sequential; only the input scan for infinite or negative values uses rayon, in a fixed order). A neighbour is updated only on a strictly smaller key; the search stops when the first target cell is popped, which for a mask is the target with the smallest key. Back-pointers are the `u16` direction codes of `find_watershed_segmentation`, reversed. Sums are `float64`: the length tie-break is exact where partial sums are exactly equal (zero-weight regions) and not for totals that become equal only through rounding.
+
+Memory: `f64` action, `f64` length and `u16` back-pointer per cell (18 bytes), plus 24 bytes per pending heap entry. Time: O(R log R) with R ≤ V · S relaxations.
+
+## Grids with unequal steps
+
+The flood kernels (`find_iwf_grid`, `find_watershed_segmentation`, `find_minimax_path`), the extrema kernels and `minimize_grid` receive only the array. They use the order of the values and cell adjacency, never coordinates, so their output is the same for any step pattern, uniform or not; what changes with the sampling is how well the grid resolves the surface. The kernels whose result depends on distances take `axes=` and use the Euclidean distance between cell coordinates: `find_steepest_descent_path` (the slope), `find_least_action_path` (ds), `find_minimum_ascent_path` (the length tie-break only). The test suite samples the `synthetic` surfaces on uniform, anisotropic and variable-step grids and checks every kernel against the analytic minima and saddles with tolerances set by the local cell.
+
 ## Neighborhood stencils
 
-`find_iwf_grid`, `find_watershed_segmentation`, and `find_minimax_path` accept `neighborhood="von_neumann"` (default; 2N axis neighbours) or `"moore"` (3ᴺ−1 Chebyshev neighbours at range 1; the range is fixed).
+`find_iwf_grid`, `find_watershed_segmentation`, and `find_minimax_path` accept `neighborhood="von_neumann"` (default; 2N axis neighbours) or `"moore"` (3ᴺ−1 Chebyshev neighbours at range 1; the range is fixed). The length-dependent kernels (`find_steepest_descent_path`, `find_least_action_path`) default to `"moore"` (von Neumann measures length in the Manhattan metric); `find_minimum_ascent_path` defaults to `"von_neumann"` like the flood kernels. All accept both.
 
 Von Neumann is the more physical choice for fission-barrier analysis: it cannot squeeze through two orthogonal barriers that meet at a corner via the unsampled diagonal. Moore matches the move set of Metropolis-style random walks on PES grids. The two bracket the continuum limit — von Neumann biases barriers slightly high (forbids diagonal moves the continuous surface allows), Moore slightly low (corner-cuts through cells it never samples) — so comparing both is a cheap grid-resolution diagnostic. Mixing stencils between the merge tree and the minimax path makes their saddles disagree; pass the `MergeTree` (or `Watershed`) to `find_minimax_path(tree=...)` so the path inherits the tree's stencil — an explicit `neighborhood` must then match the tree's.
 

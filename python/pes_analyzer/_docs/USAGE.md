@@ -116,6 +116,21 @@ if result is not None:
 non-`NaN` regions. Without `tree=` it floods the grid itself (early-stopped at the
 endpoints; `neighborhood` defaults to `"von_neumann"`).
 
+## 5b. Minimise onto two axes, and see what the map hides
+
+```python
+from pes_analyzer.grid import jump_map, minimize_grid
+
+minimum, index = minimize_grid(energies, keep=(0, 1))   # map over axes 0 and 1, minimised over the rest
+jumps = jump_map(index, keep=(0, 1))                      # cells the minimiser moves between map neighbours
+```
+
+`minimum` is the map; `index` gathers any other grid at the minimiser (mask with `index[..., 0] >= 0`); `jumps` marks where the minimiser switches valley. Compare the map's barrier with the merge tree's saddle level between the same two basins: on the `synthetic.hidden_barrier` surface they differ by a factor of three.
+
+## 5c. Other path kinds
+
+`find_steepest_descent_path(energies, start, axes=axes)` follows the slope from a cell; `find_least_action_path(cost, start, end, axes=axes)` minimises ∫ cost ds for a cost you build; `find_minimum_ascent_path(energies, start, end)` minimises the total climb. `end` may be a boolean mask of target cells. See the "Path kinds" table in `API.md`.
+
 ## 6. Release the grid arrays
 
 Once membership queries and paths are done, drop the grid-sized arrays — they are

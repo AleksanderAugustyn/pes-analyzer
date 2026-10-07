@@ -16,8 +16,11 @@ Quantum-chemistry calculations produce potential energy surfaces (PES) as dense 
 - **`pes_analyzer.extrema.find_extrema_grid`** — combined single-sweep search. Returns `(minima, maxima)` byte-identical to calling the two single-polarity functions separately, at the cost of one extra-list allocation but one fewer stencil walk per cell.
 - **`pes_analyzer.topology.find_watershed_segmentation`** — full watershed flood returning a `Watershed`: basin labels, the merge (saddle) events, and optionally each cell's flood parent (`parents=True`). Peak memory 8N + 4V bytes; `drop_labels()` releases the grid arrays.
 - **`pes_analyzer.topology.find_minimax_path`** — deep minimax path between two cells; with `tree=` it is reconstructed from the watershed's flood state instead of re-flooding.
+- **`pes_analyzer.topology.find_steepest_descent_path`, `find_least_action_path`, `find_minimum_ascent_path`** — path kernels that follow the slope from a cell, minimise ∫ cost ds for a caller-built cost, or minimise the total climb; they take optional physical axis coordinates (`axes=`) and an end cell or a boolean target mask.
 - **`pes_analyzer.topology`** merge-tree helpers — pure-Python `compute_persistence`, `prune_merge_tree`, and the traversable `MergeTree(ws)` (whose nodes are `BasinNode`s) analyse that merge tree. `MergeTree` is physics-free: it exposes neutral traversal, membership, and geometry primitives that a consumer composes with its own predicates to label ground states, saddles, fission exits, etc.
 - **`pes_analyzer.grid.build_dense`** — scatter helper that turns sparse `(coords, value)` rows into a dense `numpy` array indexed in axis order.
+- **`pes_analyzer.grid.minimize_grid` / `jump_map` / `index_to_coords` / `path_length`** — minimised maps with the full index of each minimiser, the jump map that shows where the minimiser switches valley, and axis-coordinate helpers.
+- **`pes_analyzer.synthetic`** — analytic surfaces (`muller_brown`, `separable_wells`, `hidden_barrier`) with exact minima, index-1 saddles and the minima each saddle joins, for tests and data-free examples.
 
 ## Installation
 
@@ -58,15 +61,23 @@ print(find_iwf_grid(energies, start=(0, 0), end=(0, 4)))
 | Function | Purpose | Reference |
 |---|---|---|
 | `grid.build_dense(coords, values)` | sparse rows → dense N-D array | [API.md](./python/pes_analyzer/_docs/API.md#build_dense) |
+| `grid.minimize_grid(energies, keep, *, threads=None)` | minimised map + full index of each minimiser | [API.md](./python/pes_analyzer/_docs/API.md#minimize_grid) |
+| `grid.jump_map(index, keep)` | how far the minimiser moves between map neighbours | [API.md](./python/pes_analyzer/_docs/API.md#jump_map) |
+| `grid.index_to_coords(indices, axes)` | grid indices → physical coordinates | [API.md](./python/pes_analyzer/_docs/API.md#axis-coordinates-index_to_coords-path_length) |
+| `grid.path_length(indices, axes=None)` | cumulative Euclidean length along a path | [API.md](./python/pes_analyzer/_docs/API.md#axis-coordinates-index_to_coords-path_length) |
 | `saddle.find_iwf_grid(energies, start, end)` | watershed saddle search | [API.md](./python/pes_analyzer/_docs/API.md#find_iwf_grid) |
 | `extrema.find_minima_grid(energies, *, neighborhood_range=1, confirm_range=None)` | local minima (Chebyshev stencil) | [API.md](./python/pes_analyzer/_docs/API.md#find_minima_grid) |
 | `extrema.find_maxima_grid(energies, *, neighborhood_range=1, confirm_range=None)` | local maxima (dual of `find_minima_grid`) | [API.md](./python/pes_analyzer/_docs/API.md#find_maxima_grid) |
 | `extrema.find_extrema_grid(energies, *, neighborhood_range=1, confirm_range=None)` | combined single-sweep search | [API.md](./python/pes_analyzer/_docs/API.md#find_extrema_grid) |
 | `topology.find_watershed_segmentation(energies, neighborhood="von_neumann", *, parents=False)` | full basin labelling + merge tree (`Watershed`) | [API.md](./python/pes_analyzer/_docs/API.md#find_watershed_segmentation) |
 | `topology.find_minimax_path(energies, start, end, tree=tree)` | deep minimax path from the watershed's flood state | [API.md](./python/pes_analyzer/_docs/API.md#find_minimax_path) |
+| `topology.find_steepest_descent_path(energies, start, *, axes=None, neighborhood="moore")` | steepest-descent path from a cell | [API.md](./python/pes_analyzer/_docs/API.md#find_steepest_descent_path) |
+| `topology.find_least_action_path(cost, start, end, *, axes=None, neighborhood="moore")` | path minimising ∫ cost ds to a cell or mask | [API.md](./python/pes_analyzer/_docs/API.md#find_least_action_path) |
+| `topology.find_minimum_ascent_path(energies, start, end, *, axes=None, neighborhood="von_neumann")` | path minimising the total climb to a cell or mask | [API.md](./python/pes_analyzer/_docs/API.md#find_minimum_ascent_path) |
 | `topology.compute_persistence(basins, merges)` | per-basin topological persistence | [API.md](./python/pes_analyzer/_docs/API.md#topology-helpers) |
 | `topology.prune_merge_tree(basins, merges, threshold)` | drop low-persistence basins | [API.md](./python/pes_analyzer/_docs/API.md#topology-helpers) |
 | `topology.MergeTree(ws)` | traversable basin merge tree (physics-free primitives; `drop_labels()`) | [API.md](./python/pes_analyzer/_docs/API.md#topology-helpers) |
+| `synthetic.muller_brown()`, `separable_wells(ndim)`, `hidden_barrier()` | analytic surfaces with exact critical points | [API.md](./python/pes_analyzer/_docs/API.md#synthetic) |
 
 ## Documentation
 

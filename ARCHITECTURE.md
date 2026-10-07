@@ -11,7 +11,8 @@ pes-analyzer/
 ├── src/                  — Rust sources
 │   ├── lib.rs            — PyO3 module entry point, registers submodules
 │   ├── common/           — shared internals (no PyO3)
-│   │   ├── nd.rs         — N-D indexing helpers, stencils, flood-parent direction codes
+│   │   ├── nd.rs         — N-D indexing helpers, stencils, flood-parent direction codes (`code_offsets`, `reverse_code`, `linear_to_coords`)
+│   │   ├── metric.rs     — `StepMetric`: Euclidean step length per stencil direction, unit or from `axes=` coordinates
 │   │   ├── dsu.rs        — union-find used by IWF
 │   │   ├── scalar.rs     — float32/float64 element trait for the kernels
 │   │   └── validate.rs   — pre-flight input checks for PyO3 wrappers
@@ -23,16 +24,20 @@ pes-analyzer/
 │   │   ├── mod.rs        — PyO3 wrapper for find_iwf_grid
 │   │   └── iwf_grid.rs   — pure-Rust kernel
 │   └── topology/
-│       ├── mod.rs        — PyO3 wrappers for find_watershed_segmentation, find_minimax_path, reconstruct_minimax_path
+│       ├── mod.rs        — PyO3 wrappers for find_watershed_segmentation, find_minimax_path, reconstruct_minimax_path, find_steepest_descent_path, find_search_path
 │       ├── watershed.rs  — `flood`: linear-indexed watershed with seed-rooted union-find, parallel sort, optional parents
+│       ├── steepest.rs   — `steepest_descent`: greedy largest-slope walk to a cell with no lower neighbour
+│       ├── dijkstra.rs   — `search`: lexicographic (weight, length) Dijkstra with cost-integral and ascent rules
 │       └── mep.rs        — `reconstruct`: deep minimax path from flood state; `mep_inner` = early-stopped flood + reconstruct
 ├── python/pes_analyzer/  — Python-side package
 │   ├── __init__.py       — re-exports submodules
-│   ├── grid.py           — pure-Python build_dense helper
+│   ├── grid.py           — pure-NumPy helpers: build_dense, minimize_grid, jump_map, index_to_coords, path_length
+│   ├── synthetic.py      — analytic surfaces with exact minima, saddles and incidence
 │   ├── _native.abi3.so   — compiled extension (built by maturin)
 │   ├── saddle/__init__.pyi — type stub (see below)
 │   ├── extrema/__init__.pyi — type stubs for all three extrema functions
 │   ├── topology/         — real package: `_flood.py` (Watershed + the two kernel wrappers),
+│   │                       `_metric_paths.py` (steepest descent, least action, minimum ascent),
 │   │                       `merge_tree.py`, `_tree.py`, `_path.py`, `__init__.pyi`
 │   └── _docs/            — API.md / ALGORITHMS.md / USAGE.md, shipped in the wheel
 └── tests/                — pytest integration tests
