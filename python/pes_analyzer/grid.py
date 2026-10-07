@@ -161,7 +161,12 @@ def path_length(indices: npt.ArrayLike, axes: Axes = None) -> npt.NDArray[np.flo
 
 
 def _normalize_keep(keep, ndim: int) -> tuple[int, ...]:
-    keep_t = (keep,) if isinstance(keep, (int, np.integer)) else tuple(keep)
+    if isinstance(keep, (int, np.integer)):
+        keep_t = (keep,)
+    elif isinstance(keep, (Sequence, np.ndarray)) and not isinstance(keep, str):
+        keep_t = tuple(keep)
+    else:
+        raise ValueError(f"keep must be an axis index or a sequence of axis indices, got {keep!r}")
     if not all(isinstance(k, (int, np.integer)) for k in keep_t):
         raise ValueError("keep must hold integer axis indices")
     keep_t = tuple(int(k) for k in keep_t)

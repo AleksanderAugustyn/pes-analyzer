@@ -104,3 +104,14 @@ def test_call_and_sample_shapes():
     assert E[1, 1, 1] == float(s(axes["x"][1], axes["y"][1], axes["z"][1]))
     with pytest.raises(ValueError):
         s.sample([axes["x"], axes["y"]])
+
+
+def test_tilts_are_copied_and_nan_parameters_rejected():
+    t = np.array([0.02, 0.04])
+    s = separable_wells(2, tilts=t)
+    t[:] = 1.0                                   # the caller reuses its array
+    coords, energy = s.minima[0]
+    assert float(s(*coords)) == pytest.approx(energy)
+    for kwargs in ({"w": np.nan}, {"h": np.nan}, {"b": np.nan}, {"t": np.nan}):
+        with pytest.raises(ValueError):
+            hidden_barrier(**kwargs)

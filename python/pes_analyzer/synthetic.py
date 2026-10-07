@@ -98,7 +98,8 @@ def separable_wells(ndim: int, tilts: npt.ArrayLike | None = None) -> AnalyticSu
     """
     if ndim < 1:
         raise ValueError("ndim must be at least 1")
-    t = 0.02 * 2.0 ** np.arange(ndim) if tilts is None else np.asarray(tilts, dtype=np.float64)
+    # a copy: the surface must not follow later changes to the caller's array
+    t = 0.02 * 2.0 ** np.arange(ndim) if tilts is None else np.array(tilts, dtype=np.float64)
     if t.shape != (ndim,) or not ((t > 0) & (t < 8.0 / 3.0)).all():
         raise ValueError("tilts must hold ndim values in (0, 8/3)")
 
@@ -133,7 +134,7 @@ def hidden_barrier(b: float = 1.0, h: float = 5.0, t: float = 0.5, w: float = 1.
     ``0 < t < min(8·min(b, h)/3, 16·sqrt(b·h)/9)``: the first bound keeps the
     saddles on the edges, the second keeps the origin a maximum.
     """
-    if min(b, h, w) <= 0:
+    if not (b > 0 and h > 0 and w > 0):          # also rejects NaN
         raise ValueError("b, h and w must be positive")
     if not 0 < t < min(8.0 * min(b, h) / 3.0, 16.0 / 9.0 * math.sqrt(b * h)):
         raise ValueError("t must lie in (0, min(8*min(b, h)/3, 16*sqrt(b*h)/9))")

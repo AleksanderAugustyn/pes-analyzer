@@ -271,7 +271,7 @@ def test_minimize_grid_keeps_a_plus_infinity_minimiser_like_nanmin():
     assert index.tolist() == [[0, 1], [-1, -1], [2, 0]]
 
 
-@pytest.mark.parametrize("keep", [(), (0, 1, 2, 3), (0, 0), (4,), (-1,), (0.5,)])
+@pytest.mark.parametrize("keep", [(), (0, 1, 2, 3), (0, 0), (4,), (-1,), (0.5,), 0.5, None])
 def test_minimize_grid_rejects_bad_keep(keep):
     with pytest.raises(ValueError):
         minimize_grid(_noisy_grid(), keep)
@@ -310,3 +310,12 @@ def test_jump_map_handles_empty_columns():
     np.testing.assert_array_equal(jump_map(index, keep=(0, 1)), [[1.0, 1.0], [1.0, np.nan]])
     with pytest.raises(ValueError):
         jump_map(index, keep=(0,))          # index has the wrong rank for one kept axis
+
+
+def test_minimize_grid_accepts_keep_as_an_integer_array():
+    e = _noisy_grid()
+    m_arr, i_arr = minimize_grid(e, np.array([2, 0]))
+    m_tup, i_tup = minimize_grid(e, (2, 0))
+    np.testing.assert_array_equal(m_arr, m_tup)
+    np.testing.assert_array_equal(i_arr, i_tup)
+    np.testing.assert_array_equal(jump_map(i_arr, np.array([2, 0])), jump_map(i_tup, (2, 0)))
