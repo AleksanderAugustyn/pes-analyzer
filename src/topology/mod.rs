@@ -2,6 +2,7 @@
 //! merge-tree construction.
 
 pub mod mep;
+pub mod steepest;
 pub mod watershed;
 
 use ndarray::{Array, Array1, Array2, IxDyn};
@@ -10,12 +11,14 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule, PyTuple};
 
+use crate::common::metric::StepMetric;
 use crate::common::nd::{compute_strides, index_to_linear, linear_to_index};
 use crate::common::scalar::Scalar;
 use crate::common::validate::{
     check_index_in_bounds, check_index_length, check_ndim, check_total_cells_fit_u32,
     coerce_signed_indices, parse_neighborhood,
 };
+use crate::common::validate::check_axes;
 
 #[pyfunction]
 #[pyo3(name = "find_watershed_segmentation", signature = (energies, neighborhood = "von_neumann", parents = false))]
@@ -279,12 +282,72 @@ fn run_reconstruct_minimax_path<'py, T: Scalar>(
 /// `extrema`, we do NOT patch `sys.modules` here: the real on-disk
 /// `python/pes_analyzer/topology/__init__.py` is what makes the dotted
 /// import path resolve at runtime.
+/// Step metric for the `axes=` keyword: unit steps when `None`.
+fn build_metric(shape: &[usize], axes: Option<Vec<Vec<f64>>>) -> PyResult<StepMetric> {
+    match axes {
+        None => Ok(StepMetric::unit(shape.len())),
+        Some(a) => {
+            check_axes(shape, &a)?;
+            Ok(StepMetric::from_axes(&a))
+        }
+    }
+}
+
+#[pyfunction]
+#[pyo3(name = "find_steepest_descent_path", signature = (energies, start, axes, neighborhood))]
+fn py_find_steepest_descent_path<'py>(
+    py: Python<'py>,
+    energies: &Bound<'py, PyAny>,
+    start: Vec<i64>,
+    axes: Option<Vec<Vec<f64>>>,
+    neighborhood: &str,
+) -> PyResult<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)> {
+    if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f32>>() {
+        run_find_steepest_descent_path(py, a, start, axes, neighborhood)
+    } else if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f64>>() {
+        run_find_steepest_descent_path(py, a, start, axes, neighborhood)
+    } else {
+        Err(PyValueError::new_err("energies dtype must be float32 or float64"))
+    }
+}
+
+fn run_find_steepest_descent_path<'py, T: Scalar>(
+    py: Python<'py>,
+    energies: PyReadonlyArrayDyn<'py, T>,
+    start: Vec<i64>,
+    axes: Option<Vec<Vec<f64>>>,
+    neighborhood: &str,
+) -> PyResult<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)> {
+    if !energies.is_c_contiguous() {
+        return Err(PyValueError::new_err(
+            "energies must be C-contiguous; call np.ascontiguousarray(energies) if you intend a copy",
+        ));
+    }
+    let arr = energies.as_array();
+    check_ndim(arr.ndim())?;
+    check_index_length(arr.shape(), start.len())?;
+    check_total_cells_fit_u32(arr.len())?;
+    let stencil = parse_neighborhood(neighborhood)?;
+    let start_idx = coerce_signed_indices(&start)?;
+    check_index_in_bounds(arr.shape(), &start_idx)?;
+    if arr[start_idx.as_slice()].is_nan() {
+        return Err(PyValueError::new_err("energy at `start` is NaN"));
+    }
+    let shape: Vec<usize> = arr.shape().to_vec();
+    let metric = build_metric(&shape, axes)?;
+    let start_lin = index_to_linear(&start_idx, &compute_strides(&shape));
+    let path = py.allow_threads(|| steepest::steepest_descent(arr.view(), start_lin, stencil, &metric));
+    let flat = arr.as_slice().expect("checked contiguous");
+    path_to_py(py, flat, &shape, path)
+}
+
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = parent.py();
     let m = PyModule::new_bound(py, "topology")?;
     m.add_function(wrap_pyfunction!(py_find_watershed_segmentation, &m)?)?;
     m.add_function(wrap_pyfunction!(py_find_minimax_path, &m)?)?;
     m.add_function(wrap_pyfunction!(py_reconstruct_minimax_path, &m)?)?;
+    m.add_function(wrap_pyfunction!(py_find_steepest_descent_path, &m)?)?;
     parent.add_submodule(&m)?;
     Ok(())
 }

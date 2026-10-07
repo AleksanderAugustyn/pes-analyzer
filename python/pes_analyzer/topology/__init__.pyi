@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Callable, Iterator, Optional
 
 import numpy as np
@@ -37,6 +38,16 @@ def find_minimax_path(
     *,
     tree: MergeTree | Watershed | None = ...,
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]] | None: ...
+
+Axes = Mapping[str, npt.ArrayLike] | Sequence[npt.ArrayLike] | None
+
+def find_steepest_descent_path(
+    energies: npt.NDArray[np.floating],
+    start: tuple[int, ...],
+    *,
+    axes: Axes = ...,
+    neighborhood: str = ...,
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]: ...
 
 class PathProfile:
     minima: list[tuple[int, float]]

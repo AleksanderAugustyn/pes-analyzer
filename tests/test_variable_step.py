@@ -174,3 +174,30 @@ def test_minima_saddles_and_levels_on_every_grid_kind(surf, kind, axes):
     for pair, e_star in want.items():
         tol = 1.5 * max(abs(E[c] - e_star) for c in corners(axes, saddle_at[e_star]))
         assert abs(got[pair] - e_star) <= tol, (surf.name, kind, pair, got[pair], e_star, tol)
+
+
+from pes_analyzer.topology import find_steepest_descent_path
+
+
+def local_max_step(axes, coords):
+    """Largest step adjacent to the cell enclosing ``coords``, over all axes."""
+    out = 0.0
+    for ax, x in zip(axes, coords):
+        i = bracket(ax, x)[0]
+        out = max(out, float(np.diff(ax)[max(i - 1, 0) : i + 2].max()))
+    return out
+
+
+@pytest.mark.parametrize("surf, kind, axes", GRIDS, ids=IDS)
+def test_steepest_descent_from_each_saddle_reaches_a_joined_minimum(surf, kind, axes):
+    E = surf.sample(axes)
+    for coords, _, (i, j) in surf.saddles:
+        start = tuple(int(np.argmin(np.abs(ax - x))) for ax, x in zip(axes, coords))
+        path, prof = find_steepest_descent_path(E, start, axes=axes)
+        assert (np.diff(prof) < 0).all()
+        end = np.array([ax[k] for ax, k in zip(axes, path[-1])])
+        dist = min(
+            np.linalg.norm(end - np.asarray(surf.minima[k][0])) / local_max_step(axes, surf.minima[k][0])
+            for k in (i, j)
+        )
+        assert dist <= 2.0, (surf.name, kind, coords, dist)

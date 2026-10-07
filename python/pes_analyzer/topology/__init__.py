@@ -15,6 +15,7 @@ from ._flood import (
     find_minimax_path,
     find_watershed_segmentation,
 )
+from ._metric_paths import find_steepest_descent_path
 from ._path import PathProfile, analyze_path_profile
 from ._tree import (
     compute_persistence,
@@ -27,6 +28,7 @@ __all__ = [
     "energy_fingerprint",
     "find_watershed_segmentation",
     "find_minimax_path",
+    "find_steepest_descent_path",
     "PathProfile",
     "analyze_path_profile",
     "compute_persistence",
