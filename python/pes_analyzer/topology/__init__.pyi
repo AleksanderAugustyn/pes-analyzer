@@ -29,7 +29,7 @@ def find_watershed_segmentation(
     parents: bool = ...,
 ) -> Watershed: ...
 
-def find_minimum_energy_path(
+def find_minimax_path(
     energies: npt.NDArray[np.floating],
     start: tuple[int, ...],
     end: tuple[int, ...],

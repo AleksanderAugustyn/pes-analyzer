@@ -124,7 +124,7 @@ pub fn full_neighbors(
 }
 
 /// Neighbor stencil selector shared by the flood-based kernels
-/// (`find_iwf_grid`, `find_watershed_segmentation`, `find_minimum_energy_path`).
+/// (`find_iwf_grid`, `find_watershed_segmentation`, `find_minimax_path`).
 /// Range is fixed at 1 for both variants.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stencil {

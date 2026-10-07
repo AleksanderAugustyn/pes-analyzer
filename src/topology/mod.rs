@@ -104,8 +104,8 @@ fn run_find_watershed_segmentation<'py, T: Scalar>(
 }
 
 #[pyfunction]
-#[pyo3(name = "find_minimum_energy_path", signature = (energies, start, end, neighborhood = "von_neumann"))]
-fn py_find_minimum_energy_path<'py>(
+#[pyo3(name = "find_minimax_path", signature = (energies, start, end, neighborhood = "von_neumann"))]
+fn py_find_minimax_path<'py>(
     py: Python<'py>,
     energies: &Bound<'py, PyAny>,
     start: Vec<i64>,
@@ -113,9 +113,9 @@ fn py_find_minimum_energy_path<'py>(
     neighborhood: &str,
 ) -> PyResult<Option<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)>> {
     if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f32>>() {
-        run_find_minimum_energy_path(py, a, start, end, neighborhood)
+        run_find_minimax_path(py, a, start, end, neighborhood)
     } else if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f64>>() {
-        run_find_minimum_energy_path(py, a, start, end, neighborhood)
+        run_find_minimax_path(py, a, start, end, neighborhood)
     } else {
         Err(PyValueError::new_err(
             "energies dtype must be float32 or float64",
@@ -123,7 +123,7 @@ fn py_find_minimum_energy_path<'py>(
     }
 }
 
-fn run_find_minimum_energy_path<'py, T: Scalar>(
+fn run_find_minimax_path<'py, T: Scalar>(
     py: Python<'py>,
     energies: PyReadonlyArrayDyn<'py, T>,
     start: Vec<i64>,
@@ -191,8 +191,8 @@ fn path_to_py<'py, T: Scalar>(
 }
 
 #[pyfunction]
-#[pyo3(name = "reconstruct_mep", signature = (energies, labels, parents, n_basins, merge_table, start, end))]
-fn py_reconstruct_mep<'py>(
+#[pyo3(name = "reconstruct_minimax_path", signature = (energies, labels, parents, n_basins, merge_table, start, end))]
+fn py_reconstruct_minimax_path<'py>(
     py: Python<'py>,
     energies: &Bound<'py, PyAny>,
     labels: PyReadonlyArrayDyn<'py, i32>,
@@ -203,16 +203,16 @@ fn py_reconstruct_mep<'py>(
     end: Vec<i64>,
 ) -> PyResult<Option<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)>> {
     if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f32>>() {
-        run_reconstruct_mep(py, a, labels, parents, n_basins, merge_table, start, end)
+        run_reconstruct_minimax_path(py, a, labels, parents, n_basins, merge_table, start, end)
     } else if let Ok(a) = energies.extract::<PyReadonlyArrayDyn<f64>>() {
-        run_reconstruct_mep(py, a, labels, parents, n_basins, merge_table, start, end)
+        run_reconstruct_minimax_path(py, a, labels, parents, n_basins, merge_table, start, end)
     } else {
         Err(PyValueError::new_err("energies dtype must be float32 or float64"))
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_reconstruct_mep<'py, T: Scalar>(
+fn run_reconstruct_minimax_path<'py, T: Scalar>(
     py: Python<'py>,
     energies: PyReadonlyArrayDyn<'py, T>,
     labels: PyReadonlyArrayDyn<'py, i32>,
@@ -283,8 +283,8 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = parent.py();
     let m = PyModule::new_bound(py, "topology")?;
     m.add_function(wrap_pyfunction!(py_find_watershed_segmentation, &m)?)?;
-    m.add_function(wrap_pyfunction!(py_find_minimum_energy_path, &m)?)?;
-    m.add_function(wrap_pyfunction!(py_reconstruct_mep, &m)?)?;
+    m.add_function(wrap_pyfunction!(py_find_minimax_path, &m)?)?;
+    m.add_function(wrap_pyfunction!(py_reconstruct_minimax_path, &m)?)?;
     parent.add_submodule(&m)?;
     Ok(())
 }

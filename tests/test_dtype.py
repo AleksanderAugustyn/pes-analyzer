@@ -11,7 +11,7 @@ import pytest
 from pes_analyzer.extrema import find_minima_grid
 from pes_analyzer.topology import (
     find_watershed_segmentation,
-    find_minimum_energy_path,
+    find_minimax_path,
 )
 from pes_analyzer.saddle import find_iwf_grid
 
@@ -42,8 +42,8 @@ def test_watershed_f32_matches_f64():
 
 def test_mep_f32_matches_f64():
     g32, g64 = _bowl(np.float32), _bowl(np.float64)
-    r32 = find_minimum_energy_path(g32, (0, 0), (4, 4), neighborhood="von_neumann")
-    r64 = find_minimum_energy_path(g64, (0, 0), (4, 4), neighborhood="von_neumann")
+    r32 = find_minimax_path(g32, (0, 0), (4, 4), neighborhood="von_neumann")
+    r64 = find_minimax_path(g64, (0, 0), (4, 4), neighborhood="von_neumann")
     assert (r32 is None) == (r64 is None)
     if r32 is not None:
         idx32, e32 = r32

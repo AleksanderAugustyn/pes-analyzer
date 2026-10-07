@@ -1,7 +1,7 @@
-"""1-D critical-point extraction along a minimum-energy-path profile.
+"""1-D critical-point extraction along a minimax-path profile.
 
 Pure Python; the path itself comes from the Rust kernel
-``find_minimum_energy_path``. See ``_docs/API.md`` for the contract.
+``find_minimax_path``. See ``_docs/API.md`` for the contract.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def analyze_path_profile(
     ----------
     path_energies
         1-D float array, e.g. the second output of
-        ``find_minimum_energy_path``. Must be NaN-free and non-empty.
+        ``find_minimax_path``. Must be NaN-free and non-empty.
     min_persistence
         Energy gap (same units as the profile) below which an adjacent
         minimum/saddle pair counts as noise and is removed. ``0.0`` keeps

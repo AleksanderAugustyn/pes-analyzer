@@ -86,7 +86,7 @@ Same imaginary-water-flow flood as `find_iwf_grid`, run to completion instead of
 
 **Relation to `find_iwf_grid`.** `find_iwf_grid` is the two-point specialization: same flood, but it terminates the moment the start and end cells share a DSU root and returns that single saddle cell. `find_watershed_segmentation` keeps the flood going to completion and records every merge along the way. Callers that only need the saddle between two specified cells should keep using `find_iwf_grid` — it has the early-exit and avoids building the merge tree.
 
-## `find_minimum_energy_path`
+## `find_minimax_path`
 
 **Deep minimax path.** Among all grid paths between two cells, the path that minimizes the highest energy crossed — so it passes through the exact IWF saddles — and that, between saddles, descends to the actual basin minimum cells. Its 1-D profile has true inter-basin saddles as local maxima and true basin minima as local minima; `analyze_path_profile` reads critical points directly off it.
 
@@ -112,8 +112,8 @@ All inputs may come from Python, so every step is bounds-checked; inconsistencie
 
 ## Neighborhood stencils
 
-`find_iwf_grid`, `find_watershed_segmentation`, and `find_minimum_energy_path` accept `neighborhood="von_neumann"` (default; 2N axis neighbours) or `"moore"` (3ᴺ−1 Chebyshev neighbours at range 1; the range is fixed).
+`find_iwf_grid`, `find_watershed_segmentation`, and `find_minimax_path` accept `neighborhood="von_neumann"` (default; 2N axis neighbours) or `"moore"` (3ᴺ−1 Chebyshev neighbours at range 1; the range is fixed).
 
-Von Neumann is the more physical choice for fission-barrier analysis: it cannot squeeze through two orthogonal barriers that meet at a corner via the unsampled diagonal. Moore matches the move set of Metropolis-style random walks on PES grids. The two bracket the continuum limit — von Neumann biases barriers slightly high (forbids diagonal moves the continuous surface allows), Moore slightly low (corner-cuts through cells it never samples) — so comparing both is a cheap grid-resolution diagnostic. Mixing stencils between the merge tree and the MEP makes their saddles disagree; pass the `MergeTree` (or `Watershed`) to `find_minimum_energy_path(tree=...)` so the path inherits the tree's stencil — an explicit `neighborhood` must then match the tree's.
+Von Neumann is the more physical choice for fission-barrier analysis: it cannot squeeze through two orthogonal barriers that meet at a corner via the unsampled diagonal. Moore matches the move set of Metropolis-style random walks on PES grids. The two bracket the continuum limit — von Neumann biases barriers slightly high (forbids diagonal moves the continuous surface allows), Moore slightly low (corner-cuts through cells it never samples) — so comparing both is a cheap grid-resolution diagnostic. Mixing stencils between the merge tree and the minimax path makes their saddles disagree; pass the `MergeTree` (or `Watershed`) to `find_minimax_path(tree=...)` so the path inherits the tree's stencil — an explicit `neighborhood` must then match the tree's.
 
 The extrema kernels (`find_minima_grid` etc.) are unaffected: they keep the king-move Chebyshev stencil with the separate `neighborhood_range` parameter, for the reasons given above.

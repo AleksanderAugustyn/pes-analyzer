@@ -339,7 +339,7 @@ def find_watershed_segmentation(
 
 - **`energies`** — C-contiguous `float32` or `float64` array of ndim N ∈ [2, 7]. `NaN` cells are masked.
 - **`neighborhood`** — `"von_neumann"` (2N axis neighbors, default) or `"moore"` (3ᴺ−1 Chebyshev r=1 neighbors). See `ALGORITHMS.md` § Neighborhood stencils.
-- **`parents`** — also record each cell's flood parent as a direction code (`Watershed.parents`, 2N bytes). Required by `find_minimum_energy_path(..., tree=)`.
+- **`parents`** — also record each cell's flood parent as a direction code (`Watershed.parents`, 2N bytes). Required by `find_minimax_path(..., tree=)`.
 
 ### Returns
 
@@ -354,7 +354,7 @@ A `Watershed` dataclass — the single owner of the grid-sized arrays:
 | `parents` | `uint16` ndarray or `None`, read-only | 2N B | flood-parent direction code per cell (`65535` at seeds and `NaN` cells); `None` unless `parents=True` |
 | `merge_table` | `uint32` ndarray `(M, 5)`, read-only | 20M B | per merge `saddle_lin, other_lin, deeper, shallower, saddle_side` — linear cell indices of the saddle and of its already-flooded neighbour on the other component, the basin ids, and the basin the saddle cell itself belongs to |
 | `dtype` | `numpy.dtype` | — | dtype of `energies` |
-| `fingerprint` | `bytes` (16) | — | `energy_fingerprint(energies)`, used by `find_minimum_energy_path(tree=)` to reject a different grid |
+| `fingerprint` | `bytes` (16) | — | `energy_fingerprint(energies)`, used by `find_minimax_path(tree=)` to reject a different grid |
 
 Plus:
 
@@ -401,12 +401,12 @@ print(ws.labels[2, 2], ws.merge_table)
 
 ---
 
-## `find_minimum_energy_path`
+## `find_minimax_path`
 
 ```python
-from pes_analyzer.topology import find_minimum_energy_path
+from pes_analyzer.topology import find_minimax_path
 
-def find_minimum_energy_path(
+def find_minimax_path(
     energies: numpy.ndarray[float32 | float64],
     start: tuple[int, ...],
     end: tuple[int, ...],
@@ -450,23 +450,25 @@ def find_minimum_energy_path(
 
 Computes the *deep minimax path*: among all grid paths from `start` to `end` it minimizes the highest energy crossed (so it passes through the exact saddles `find_iwf_grid` reports), and between saddles it descends to the actual basin minimum cells. The profile's local maxima are therefore true inter-basin saddles and its local minima are true basin minima — feed `path_energies` to `analyze_path_profile` to extract them.
 
-**Standalone mode** (`tree=None`) floods with the same kernel as `find_watershed_segmentation`, recording parents and stopping as soon as `start` and `end` connect, then reconstructs the path from that partial flood; it costs 10N + 4V bytes plus the sort transient. **Tree mode** skips the flood entirely: the Kruskal forest is rebuilt from `merge_table` and the descents follow `parents`. For the same grid and neighbourhood both modes return the identical path. See `ALGORITHMS.md` (`find_minimum_energy_path`).
+The minimax path is what the grid-based literature calls the minimum energy path (MEP): it crosses the same saddles at the same energies. Between saddles it follows the flood's descent chains, not the gradient, so the cells visited can differ from a steepest-descent path; `find_steepest_descent_path` gives that route.
+
+**Standalone mode** (`tree=None`) floods with the same kernel as `find_watershed_segmentation`, recording parents and stopping as soon as `start` and `end` connect, then reconstructs the path from that partial flood; it costs 10N + 4V bytes plus the sort transient. **Tree mode** skips the flood entirely: the Kruskal forest is rebuilt from `merge_table` and the descents follow `parents`. For the same grid and neighbourhood both modes return the identical path. See `ALGORITHMS.md` (`find_minimax_path`).
 
 ### Example
 
 ```python
 import numpy as np
-from pes_analyzer.topology import MergeTree, analyze_path_profile, find_minimum_energy_path, find_watershed_segmentation
+from pes_analyzer.topology import MergeTree, analyze_path_profile, find_minimax_path, find_watershed_segmentation
 
 energies = np.array([[0.0, 3.0, 5.0, 4.0, 1.0, 3.0, 6.0, 4.0, 2.0]])
-idx, prof = find_minimum_energy_path(energies, (0, 0), (0, 8))
+idx, prof = find_minimax_path(energies, (0, 0), (0, 8))
 print(idx[:, 1])
 # [0 1 2 3 4 5 6 7 8]
 print(analyze_path_profile(prof))
 # PathProfile(minima=[(0, 0.0), (4, 1.0), (8, 2.0)], saddles=[(2, 5.0), (6, 6.0)])
 
 tree = MergeTree(find_watershed_segmentation(energies, parents=True))
-idx2, prof2 = find_minimum_energy_path(energies, (0, 0), (0, 8), tree=tree)   # same path, no re-flood
+idx2, prof2 = find_minimax_path(energies, (0, 0), (0, 8), tree=tree)   # same path, no re-flood
 assert (idx2 == idx).all()
 ```
 
@@ -481,13 +483,13 @@ assert (idx2 == idx).all()
 
 ## Topology helpers
 
-The pure-Python helpers in `pes_analyzer.topology` analyse the merge tree produced by `find_watershed_segmentation` and the profile produced by `find_minimum_energy_path`.
+The pure-Python helpers in `pes_analyzer.topology` analyse the merge tree produced by `find_watershed_segmentation` and the profile produced by `find_minimax_path`.
 
 ### `analyze_path_profile(path_energies, min_persistence=0.0) -> PathProfile`
 
 Extracts the alternating local minima and maxima (saddles) of a 1-D energy profile, then repeatedly cancels the adjacent minimum/saddle pair with the smallest energy gap until every surviving pair clears `min_persistence`. The profile's global minimum is never cancelled. Path endpoints participate like any extremum (a rising start / falling end counts as a minimum); plateau extrema report the last plateau cell. Raises `ValueError` on empty, non-1-D, or NaN-containing input.
 
-`PathProfile` is a frozen dataclass with `minima: list[tuple[int, float]]` and `saddles: list[tuple[int, float]]` — `(path_index, energy)` pairs in path order. Map a `path_index` back to grid coordinates via row `k` of the `path_indices` array from `find_minimum_energy_path`.
+`PathProfile` is a frozen dataclass with `minima: list[tuple[int, float]]` and `saddles: list[tuple[int, float]]` — `(path_index, energy)` pairs in path order. Map a `path_index` back to grid coordinates via row `k` of the `path_indices` array from `find_minimax_path`.
 
 ### `compute_persistence(basins, merges) -> numpy.ndarray[float64]`
 
@@ -586,7 +588,7 @@ the end-to-end pipeline these primitives plug into.
 | `ValueError: ndim must be in [2, 7]` | wrong array shape | reshape or filter inactive axes |
 | `IndexError: index ... out of bounds for axis ...` / `negative index ... is not allowed` | `start`/`end` outside the grid | check the index values (a wrong tuple *length* is a `ValueError`) |
 | `ValueError: energy at \`start\` is NaN` | endpoint cell is masked | pick an endpoint inside the non-`NaN` region |
-| `ValueError: tree was built without parents=True` | `find_minimum_energy_path(tree=)` on a watershed without flood parents | rebuild with `find_watershed_segmentation(energies, parents=True)` |
+| `ValueError: tree was built without parents=True` | `find_minimax_path(tree=)` on a watershed without flood parents | rebuild with `find_watershed_segmentation(energies, parents=True)` |
 | `ValueError: tree was built from a different energy grid` | `tree=` with an array of different dtype/values | pass the exact array the watershed was built from |
 | `RuntimeError: MergeTree labels were dropped` | membership query after `drop_labels()` | query before dropping, or rebuild the watershed |
 | `ValueError: neighborhood_range must be in [1, 5]` | passed `0` or `> 5` | choose `neighborhood_range ∈ {1, 2, 3, 4, 5}` |

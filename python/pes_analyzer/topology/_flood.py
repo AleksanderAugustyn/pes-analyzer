@@ -13,7 +13,7 @@ import numpy as np
 
 from pes_analyzer._native import topology as _native_topology
 
-__all__ = ["Watershed", "energy_fingerprint", "find_minimum_energy_path", "find_watershed_segmentation"]
+__all__ = ["Watershed", "energy_fingerprint", "find_minimax_path", "find_watershed_segmentation"]
 
 _FINGERPRINT_SAMPLES = 1 << 20
 
@@ -89,7 +89,7 @@ def find_watershed_segmentation(
     )
 
 
-def find_minimum_energy_path(
+def find_minimax_path(
     energies: np.ndarray,
     start: tuple[int, ...],
     end: tuple[int, ...],
@@ -111,7 +111,7 @@ def find_minimum_energy_path(
     start = tuple(int(i) for i in start)
     end = tuple(int(i) for i in end)
     if tree is None:
-        return _native_topology.find_minimum_energy_path(
+        return _native_topology.find_minimax_path(
             energies, start, end, "von_neumann" if neighborhood is None else neighborhood
         )
     ws = getattr(tree, "ws", tree)
@@ -137,6 +137,6 @@ def find_minimum_energy_path(
         raise ValueError("tree merge_table must be a uint32 array of shape (M, 5)")
     if ws.parents.shape != ws.labels.shape:
         raise ValueError(f"tree parents shape {ws.parents.shape} does not match labels shape {ws.labels.shape}")
-    return _native_topology.reconstruct_mep(
+    return _native_topology.reconstruct_minimax_path(
         energies, ws.labels, ws.parents, len(ws.basins), ws.merge_table, start, end
     )

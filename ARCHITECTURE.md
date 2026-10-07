@@ -23,7 +23,7 @@ pes-analyzer/
 │   │   ├── mod.rs        — PyO3 wrapper for find_iwf_grid
 │   │   └── iwf_grid.rs   — pure-Rust kernel
 │   └── topology/
-│       ├── mod.rs        — PyO3 wrappers for find_watershed_segmentation, find_minimum_energy_path, reconstruct_mep
+│       ├── mod.rs        — PyO3 wrappers for find_watershed_segmentation, find_minimax_path, reconstruct_minimax_path
 │       ├── watershed.rs  — `flood`: linear-indexed watershed with seed-rooted union-find, parallel sort, optional parents
 │       └── mep.rs        — `reconstruct`: deep minimax path from flood state; `mep_inner` = early-stopped flood + reconstruct
 ├── python/pes_analyzer/  — Python-side package
@@ -74,7 +74,7 @@ Inputs cross the boundary as `PyReadonlyArrayDyn`, which holds a read-lock on th
   - `axis_neighbors(lin, shape, strides, &mut out)` — fills the 2N axis-only neighbour list. Used by `find_iwf_grid`.
   - `full_neighbors(lin, shape, strides, r, &mut out)` — fills the (2r+1)ᴺ−1 Chebyshev-box neighbour list. Used by the extrema confirm stage.
   - `walk_box_neighbors(lin, shape, strides, r, visit)` — the same enumeration without a list; `visit` returns `false` to stop early. Used by the extrema find stage.
-  - `Stencil::{neighbors, neighbors_with_codes}` — von Neumann / Moore neighbours, optionally with a `u16` direction code per neighbour (`PARENT_NONE`, `code_space`, `apply_code`, `apply_code_checked`). The flood records these codes as flood parents; the MEP reconstruction walks them.
+  - `Stencil::{neighbors, neighbors_with_codes}` — von Neumann / Moore neighbours, optionally with a `u16` direction code per neighbour (`PARENT_NONE`, `code_space`, `apply_code`, `apply_code_checked`). The flood records these codes as flood parents; the minimax-path reconstruction walks them.
 - **`dsu.rs`** — `DisjointSetUnion`, the union-find structure behind `find_iwf_grid`. The watershed flood keeps its own seed-rooted `parent: Vec<u32>` instead (see `ALGORITHMS.md`).
 - **`scalar.rs`** — the `Scalar` trait (`f32`, `f64`): total ordering, `to_f64`, `Send + Sync` for rayon.
 - **`validate.rs`** — pre-flight input checks (`check_ndim`, `check_total_cells_fit_u32`, `check_index_length`, `check_index_in_bounds`, `coerce_signed_indices`). PyO3 wrappers call these before doing any work.

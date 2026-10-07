@@ -17,7 +17,7 @@ pub struct FloodOptions {
     /// Record each cell's flood parent as a direction code (`parents`).
     pub record_parents: bool,
     /// Stop as soon as these two linear indices share a component
-    /// (the standalone MEP's early exit). Cells never reached keep label -1.
+    /// (the standalone minimax path's early exit). Cells never reached keep label -1.
     pub stop_when_connected: Option<(usize, usize)>,
 }
 

@@ -1,7 +1,7 @@
 # Usage: the pes_analyzer pipeline end-to-end
 
 This walks the typical workflow from a raw long-form table to labelled basins and
-a minimum-energy path. Every function here has a full contract in `API.md`; this
+a minimax path. Every function here has a full contract in `API.md`; this
 page shows how they compose. For algorithm details and the neighborhood-stencil
 rationale, see `ALGORITHMS.md`.
 
@@ -12,7 +12,7 @@ build_dense            sparse (coords, value) rows  ->  dense N-D grid
 find_minima_grid       dense grid                   ->  local minima
 find_watershed_segmentation  dense grid             ->  basin labels + merge tree
 MergeTree              (labels, basins, merges)     ->  traversable basin tree
-find_minimum_energy_path + analyze_path_profile     ->  barrier profile between two cells
+find_minimax_path + analyze_path_profile     ->  barrier profile between two cells
 ```
 
 ## 1. Build the dense grid
@@ -56,7 +56,7 @@ combined single-sweep variants.
 
 `find_watershed_segmentation` floods the entire grid and records every basin merge
 as a saddle event — the full generalization of the two-point `find_iwf_grid`. Ask
-for `parents=True` when you will also want minimum-energy paths (step 5).
+for `parents=True` when you will also want minimax paths (step 5).
 
 ```python
 from pes_analyzer.topology import find_watershed_segmentation
@@ -96,23 +96,23 @@ basins below a persistence floor.
 
 ## 5. Profile the barrier between two cells
 
-`find_minimum_energy_path` returns the deep minimax path: it minimizes the highest
+`find_minimax_path` returns the deep minimax path: it minimizes the highest
 energy crossed (passing through exactly the watershed saddles) and descends to true
 basin minima between barriers. With `tree=` it reuses the watershed's flood state
 instead of flooding again, and the neighbourhood is the tree's. Feed the energy
 profile to `analyze_path_profile` to extract the alternating minima and saddles.
 
 ```python
-from pes_analyzer.topology import analyze_path_profile, find_minimum_energy_path
+from pes_analyzer.topology import analyze_path_profile, find_minimax_path
 
-result = find_minimum_energy_path(energies, start=(0, 0), end=(1, 1), tree=tree)
+result = find_minimax_path(energies, start=(0, 0), end=(1, 1), tree=tree)
 if result is not None:
     path_indices, path_energies = result        # (K, N) int64, (K,) float64
     profile = analyze_path_profile(path_energies, min_persistence=0.0)
     # profile.minima, profile.saddles: lists of (path_index, energy)
     # recover grid coords of path_index k via path_indices[k]
 ```
-`find_minimum_energy_path` returns `None` when `start` and `end` lie in disjoint
+`find_minimax_path` returns `None` when `start` and `end` lie in disjoint
 non-`NaN` regions. Without `tree=` it floods the grid itself (early-stopped at the
 endpoints; `neighborhood` defaults to `"von_neumann"`).
 
@@ -130,12 +130,12 @@ tree.basin_of_point((0, 1))     # -> RuntimeError: labels were dropped
 ## Contracts you must get right
 
 - **Neighborhood asymmetry.** Flood kernels (`find_iwf_grid`,
-  `find_watershed_segmentation`, `find_minimum_energy_path`) default to axis-only
+  `find_watershed_segmentation`, `find_minimax_path`) default to axis-only
   von Neumann neighbours (`2N`), with opt-in `neighborhood="moore"` (`3**N - 1`).
   Extrema use the Chebyshev king-move stencil with `neighborhood_range`. This
   asymmetry is intentional — see `ALGORITHMS.md`.
 - **Match `neighborhood` across the tree and the path.** Pass the `MergeTree`
-  (or `Watershed`) to `find_minimum_energy_path(tree=...)` so the path reuses the
+  (or `Watershed`) to `find_minimax_path(tree=...)` so the path reuses the
   flood state and its neighbourhood; a bare `neighborhood` on the path must match
   the tree's or their saddles disagree. For one `neighborhood`, `max(path_energies)`
   equals the `find_iwf_grid` saddle energy between the same endpoints.

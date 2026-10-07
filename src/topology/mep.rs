@@ -1,4 +1,4 @@
-//! Deep minimax minimum-energy path between two grid cells, reconstructed
+//! Deep minimax path between two grid cells, reconstructed
 //! from a flood's state: the Kruskal forest is rebuilt from the merge list
 //! (leaves = basins, events = merges) and descents follow the recorded
 //! flood-parent direction codes. See `ALGORITHMS.md`.

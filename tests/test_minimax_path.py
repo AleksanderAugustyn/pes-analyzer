@@ -1,4 +1,4 @@
-"""Integration tests for find_minimum_energy_path (compiled extension).
+"""Integration tests for find_minimax_path (compiled extension).
 
 Run against the compiled extension; require ``maturin develop --release``
 to be current.
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from pes_analyzer.saddle import find_iwf_grid
-from pes_analyzer.topology import find_minimum_energy_path, find_watershed_segmentation
+from pes_analyzer.topology import find_minimax_path, find_watershed_segmentation
 
 
 def _chain_grid() -> np.ndarray:
@@ -26,7 +26,7 @@ def _diagonal_grid() -> np.ndarray:
 
 
 def test_returns_index_matrix_and_profile():
-    idx, prof = find_minimum_energy_path(_chain_grid(), (0, 0), (0, 8))
+    idx, prof = find_minimax_path(_chain_grid(), (0, 0), (0, 8))
     assert idx.dtype == np.int64 and idx.shape == (9, 2)
     assert prof.dtype == np.float64 and prof.shape == (9,)
     np.testing.assert_array_equal(idx[:, 1], np.arange(9))
@@ -34,19 +34,19 @@ def test_returns_index_matrix_and_profile():
 
 
 def test_endpoints_are_first_and_last_rows():
-    idx, _prof = find_minimum_energy_path(_chain_grid(), (0, 0), (0, 8))
+    idx, _prof = find_minimax_path(_chain_grid(), (0, 0), (0, 8))
     assert tuple(idx[0]) == (0, 0)
     assert tuple(idx[-1]) == (0, 8)
 
 
 def test_start_equals_end_is_single_row():
-    idx, prof = find_minimum_energy_path(_chain_grid(), (0, 4), (0, 4))
+    idx, prof = find_minimax_path(_chain_grid(), (0, 4), (0, 4))
     assert idx.shape == (1, 2) and tuple(idx[0]) == (0, 4)
     assert prof[0] == 1.0
 
 
 def test_path_dips_to_intermediate_basin_minimum():
-    _idx, prof = find_minimum_energy_path(_chain_grid(), (0, 0), (0, 8))
+    _idx, prof = find_minimax_path(_chain_grid(), (0, 0), (0, 8))
     assert 1.0 in prof  # basin floor at col 4 is visited
 
 
@@ -58,7 +58,7 @@ def test_highest_profile_energy_equals_iwf_saddle(neighborhood):
     rng = np.random.default_rng(42)
     e = rng.random((6, 7, 5))
     start, end = (0, 0, 0), (5, 6, 4)
-    _idx, prof = find_minimum_energy_path(e, start, end, neighborhood=neighborhood)
+    _idx, prof = find_minimax_path(e, start, end, neighborhood=neighborhood)
     saddle = find_iwf_grid(e, start, end, neighborhood=neighborhood)
     assert saddle is not None
     assert prof.max() == saddle[1]
@@ -70,7 +70,7 @@ def test_highest_profile_energy_equals_iwf_saddle(neighborhood):
 def test_von_neumann_steps_change_one_axis_by_one():
     rng = np.random.default_rng(7)
     e = rng.random((6, 7, 5))
-    idx, _prof = find_minimum_energy_path(e, (0, 0, 0), (5, 6, 4))
+    idx, _prof = find_minimax_path(e, (0, 0, 0), (5, 6, 4))
     steps = np.abs(np.diff(idx, axis=0))
     assert (steps.sum(axis=1) == 1).all()
 
@@ -78,7 +78,7 @@ def test_von_neumann_steps_change_one_axis_by_one():
 def test_moore_steps_are_chebyshev_one():
     rng = np.random.default_rng(7)
     e = rng.random((6, 7, 5))
-    idx, _prof = find_minimum_energy_path(
+    idx, _prof = find_minimax_path(
         e, (0, 0, 0), (5, 6, 4), neighborhood="moore"
     )
     steps = np.abs(np.diff(idx, axis=0))
@@ -88,9 +88,9 @@ def test_moore_steps_are_chebyshev_one():
 
 def test_moore_crosses_diagonal_channel_von_neumann_does_not():
     e = _diagonal_grid()
-    _i, prof_vn = find_minimum_energy_path(e, (0, 0), (2, 2))
+    _i, prof_vn = find_minimax_path(e, (0, 0), (2, 2))
     assert prof_vn.max() == 9.0
-    _i, prof_m = find_minimum_energy_path(e, (0, 0), (2, 2), neighborhood="moore")
+    _i, prof_m = find_minimax_path(e, (0, 0), (2, 2), neighborhood="moore")
     assert prof_m.max() == 1.0
 
 
@@ -119,18 +119,18 @@ def test_watershed_accepts_neighborhood():
 def test_disconnected_returns_none():
     nan = float("nan")
     e = np.array([[0.0, nan, 1.0], [0.5, nan, 0.5], [1.0, nan, 0.0]])
-    assert find_minimum_energy_path(e, (0, 0), (2, 2)) is None
+    assert find_minimax_path(e, (0, 0), (2, 2)) is None
 
 
 def test_nan_endpoint_raises():
     e = np.array([[np.nan, 1.0], [1.0, 0.0]])
     with pytest.raises(ValueError, match="NaN"):
-        find_minimum_energy_path(e, (0, 0), (1, 1))
+        find_minimax_path(e, (0, 0), (1, 1))
 
 
 def test_unknown_neighborhood_raises():
     with pytest.raises(ValueError, match="neighborhood"):
-        find_minimum_energy_path(_chain_grid(), (0, 0), (0, 8), neighborhood="king")
+        find_minimax_path(_chain_grid(), (0, 0), (0, 8), neighborhood="king")
     with pytest.raises(ValueError, match="neighborhood"):
         find_iwf_grid(_chain_grid(), (0, 0), (0, 8), neighborhood="king")
     with pytest.raises(ValueError, match="neighborhood"):
@@ -141,7 +141,7 @@ def test_non_contiguous_raises():
     e = np.asarray(np.random.default_rng(0).random((4, 5)).T)
     assert not e.flags.c_contiguous
     with pytest.raises(ValueError, match="C-contiguous"):
-        find_minimum_energy_path(e, (0, 0), (4, 3))
+        find_minimax_path(e, (0, 0), (4, 3))
 
 
 # -------- analyze_path_profile (pure Python) ---------------------------------
@@ -198,3 +198,11 @@ def test_profile_rejects_nan_and_empty():
         analyze_path_profile(np.array([0.0, np.nan]))
     with pytest.raises(ValueError):
         analyze_path_profile(np.array([]))
+
+
+def test_old_name_is_gone_and_new_name_is_exported():
+    import pes_analyzer.topology as topo
+
+    old_name = "find_minimum_" "energy_path"      # split so the rename sed of Step 4 cannot rewrite it
+    assert not hasattr(topo, old_name)
+    assert "find_minimax_path" in topo.__all__
