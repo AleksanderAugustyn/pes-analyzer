@@ -49,6 +49,24 @@ def find_steepest_descent_path(
     neighborhood: str = ...,
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]: ...
 
+def find_least_action_path(
+    cost: npt.NDArray[np.floating],
+    start: tuple[int, ...],
+    end: tuple[int, ...] | npt.NDArray[np.bool_],
+    *,
+    axes: Axes = ...,
+    neighborhood: str = ...,
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]] | None: ...
+
+def find_minimum_ascent_path(
+    energies: npt.NDArray[np.floating],
+    start: tuple[int, ...],
+    end: tuple[int, ...] | npt.NDArray[np.bool_],
+    *,
+    axes: Axes = ...,
+    neighborhood: str = ...,
+) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]] | None: ...
+
 class PathProfile:
     minima: list[tuple[int, float]]
     saddles: list[tuple[int, float]]

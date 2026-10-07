@@ -39,3 +39,63 @@ def find_steepest_descent_path(
     return _native_topology.find_steepest_descent_path(
         energies, tuple(int(i) for i in start), _axes_arg(axes, energies.shape), neighborhood
     )
+
+
+def _split_end(end, shape: tuple[int, ...]):
+    """``(index, None)`` for an index tuple, ``(None, mask)`` for a boolean mask of the grid shape."""
+    if isinstance(end, np.ndarray) and end.dtype == np.bool_:
+        if end.shape != shape:
+            raise ValueError(f"end mask shape {end.shape} does not match the grid shape {shape}")
+        if not end.flags["C_CONTIGUOUS"]:
+            raise ValueError("end mask must be C-contiguous; call np.ascontiguousarray(mask) if you intend a copy")
+        if not end.any():
+            raise ValueError("end mask has no True cell")
+        return None, end
+    if isinstance(end, np.ndarray) and end.ndim != 1:
+        raise ValueError("end must be an index tuple or a boolean mask with the shape of the grid")
+    return tuple(int(i) for i in end), None
+
+
+def _search(field, start, end, rule: str, axes: Axes, neighborhood: str) -> PathResult | None:
+    field = np.asarray(field)
+    index, mask = _split_end(end, field.shape)
+    return _native_topology.find_search_path(
+        field, tuple(int(i) for i in start), index, mask, rule, _axes_arg(axes, field.shape), neighborhood
+    )
+
+
+def find_least_action_path(
+    cost: npt.ArrayLike,
+    start: tuple[int, ...],
+    end: tuple[int, ...] | npt.NDArray[np.bool_],
+    *,
+    axes: Axes = None,
+    neighborhood: str = "moore",
+) -> PathResult | None:
+    """Path minimising ∫ cost ds (trapezoid rule per step) from ``start`` to ``end``.
+
+    ``end`` is one index or a boolean mask of target cells; the search stops
+    at the first target reached. Among equal-action paths the shortest wins.
+    Returns ``(path_indices, path_action)`` with the cumulative action per
+    cell, or ``None`` if no target is reachable. ``cost`` must be
+    non-negative; ``NaN`` is a wall. See ``_docs/API.md``.
+    """
+    return _search(cost, start, end, "cost", axes, neighborhood)
+
+
+def find_minimum_ascent_path(
+    energies: npt.ArrayLike,
+    start: tuple[int, ...],
+    end: tuple[int, ...] | npt.NDArray[np.bool_],
+    *,
+    axes: Axes = None,
+    neighborhood: str = "von_neumann",
+) -> PathResult | None:
+    """Path minimising the total climb Σ max(ΔE, 0) from ``start`` to ``end``.
+
+    Descents are free. Among equal-climb paths the shortest wins (``axes``
+    enter only there). Returns ``(path_indices, path_ascent)`` with the
+    cumulative climb per cell, or ``None`` if no target is reachable. See
+    ``_docs/API.md``.
+    """
+    return _search(energies, start, end, "ascent", axes, neighborhood)

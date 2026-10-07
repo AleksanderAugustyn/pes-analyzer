@@ -342,6 +342,125 @@ fn run_find_steepest_descent_path<'py, T: Scalar>(
     path_to_py(py, flat, &shape, path)
 }
 
+/// `(K, N)` `int64` index matrix of a linear-index path.
+fn index_matrix<'py>(py: Python<'py>, shape: &[usize], path_lin: &[usize]) -> PyResult<Py<PyArray2<i64>>> {
+    let ndim = shape.len();
+    let strides = compute_strides(shape);
+    let mut idx_flat: Vec<i64> = Vec::with_capacity(path_lin.len() * ndim);
+    for &lin in path_lin {
+        idx_flat.extend(linear_to_index(lin, shape, &strides).iter().map(|&i| i as i64));
+    }
+    let indices = Array2::from_shape_vec((path_lin.len(), ndim), idx_flat)
+        .map_err(|e| PyValueError::new_err(format!("path reshape failed: {e}")))?;
+    Ok(indices.into_pyarray_bound(py).unbind())
+}
+
+#[pyfunction]
+#[pyo3(name = "find_search_path", signature = (field, start, end, mask, rule, axes, neighborhood))]
+#[allow(clippy::too_many_arguments)]
+fn py_find_search_path<'py>(
+    py: Python<'py>,
+    field: &Bound<'py, PyAny>,
+    start: Vec<i64>,
+    end: Option<Vec<i64>>,
+    mask: Option<PyReadonlyArrayDyn<'py, bool>>,
+    rule: &str,
+    axes: Option<Vec<Vec<f64>>>,
+    neighborhood: &str,
+) -> PyResult<Option<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)>> {
+    if let Ok(a) = field.extract::<PyReadonlyArrayDyn<f32>>() {
+        run_find_search_path(py, a, start, end, mask, rule, axes, neighborhood)
+    } else if let Ok(a) = field.extract::<PyReadonlyArrayDyn<f64>>() {
+        run_find_search_path(py, a, start, end, mask, rule, axes, neighborhood)
+    } else {
+        Err(PyValueError::new_err("input dtype must be float32 or float64"))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_find_search_path<'py, T: Scalar>(
+    py: Python<'py>,
+    field: PyReadonlyArrayDyn<'py, T>,
+    start: Vec<i64>,
+    end: Option<Vec<i64>>,
+    mask: Option<PyReadonlyArrayDyn<'py, bool>>,
+    rule: &str,
+    axes: Option<Vec<Vec<f64>>>,
+    neighborhood: &str,
+) -> PyResult<Option<(Py<PyArray2<i64>>, Py<PyArray1<f64>>)>> {
+    let (rule, what) = match rule {
+        "cost" => (dijkstra::EdgeRule::CostIntegral, "cost"),
+        "ascent" => (dijkstra::EdgeRule::Ascent, "energy"),
+        _ => return Err(PyValueError::new_err(format!("rule must be 'cost' or 'ascent', got '{rule}'"))),
+    };
+    if !field.is_c_contiguous() {
+        return Err(PyValueError::new_err(format!(
+            "{what} array must be C-contiguous; call np.ascontiguousarray if you intend a copy"
+        )));
+    }
+    let arr = field.as_array();
+    check_ndim(arr.ndim())?;
+    check_total_cells_fit_u32(arr.len())?;
+    let stencil = parse_neighborhood(neighborhood)?;
+    let shape: Vec<usize> = arr.shape().to_vec();
+    let strides = compute_strides(&shape);
+    check_index_length(&shape, start.len())?;
+    let start_idx = coerce_signed_indices(&start)?;
+    check_index_in_bounds(&shape, &start_idx)?;
+    if arr[start_idx.as_slice()].is_nan() {
+        return Err(PyValueError::new_err(format!("{what} at `start` is NaN")));
+    }
+    let start_lin = index_to_linear(&start_idx, &strides);
+    let end_lin = match &end {
+        Some(e) => {
+            check_index_length(&shape, e.len())?;
+            let idx = coerce_signed_indices(e)?;
+            check_index_in_bounds(&shape, &idx)?;
+            if arr[idx.as_slice()].is_nan() {
+                return Err(PyValueError::new_err(format!("{what} at `end` is NaN")));
+            }
+            Some(index_to_linear(&idx, &strides))
+        }
+        None => None,
+    };
+    let mask_slice: Option<&[bool]> = match &mask {
+        Some(m) => {
+            if m.shape() != arr.shape() {
+                return Err(PyValueError::new_err("end mask must have the shape of the grid"));
+            }
+            if !m.is_c_contiguous() {
+                return Err(PyValueError::new_err("end mask must be C-contiguous"));
+            }
+            Some(m.as_slice()?)
+        }
+        None => None,
+    };
+    let target = match (end_lin, mask_slice) {
+        (Some(c), None) => dijkstra::Target::Cell(c),
+        (None, Some(m)) => {
+            if !m.iter().any(|&t| t) {
+                return Err(PyValueError::new_err("end mask has no True cell"));
+            }
+            dijkstra::Target::Mask(m)
+        }
+        _ => return Err(PyValueError::new_err("give exactly one of `end` and `mask`")),
+    };
+    let metric = build_metric(&shape, axes)?;
+    let flat = arr.as_slice().expect("checked contiguous");
+    let result = py.allow_threads(|| match dijkstra::field_violation(flat, rule) {
+        Some(kind) => Err(kind),
+        None => Ok(dijkstra::search(arr.view(), start_lin, target, rule, stencil, &metric)),
+    });
+    match result {
+        Err(kind) => Err(PyValueError::new_err(format!("{what} array contains {kind} value"))),
+        Ok(None) => Ok(None),
+        Ok(Some(r)) => Ok(Some((
+            index_matrix(py, &shape, &r.path)?,
+            Array1::from_vec(r.cumulative).into_pyarray_bound(py).unbind(),
+        ))),
+    }
+}
+
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let py = parent.py();
     let m = PyModule::new_bound(py, "topology")?;
@@ -349,6 +468,7 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_find_minimax_path, &m)?)?;
     m.add_function(wrap_pyfunction!(py_reconstruct_minimax_path, &m)?)?;
     m.add_function(wrap_pyfunction!(py_find_steepest_descent_path, &m)?)?;
+    m.add_function(wrap_pyfunction!(py_find_search_path, &m)?)?;
     parent.add_submodule(&m)?;
     Ok(())
 }
