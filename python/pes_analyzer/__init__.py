@@ -8,6 +8,7 @@ import paths::
     from pes_analyzer.extrema  import find_minima_grid, find_maxima_grid, find_extrema_grid
     from pes_analyzer.grid     import build_dense
     from pes_analyzer.topology import find_watershed_segmentation
+    from pes_analyzer.synthetic import muller_brown
 """
 
 from importlib.resources import files
@@ -16,6 +17,7 @@ from pathlib import Path
 from pes_analyzer._native import extrema, saddle  # noqa: F401
 from pes_analyzer import grid  # noqa: F401
 from pes_analyzer import topology  # noqa: F401
+from pes_analyzer import synthetic  # noqa: F401
 
 
 def docs_path() -> Path:
@@ -33,4 +35,4 @@ def docs_path() -> Path:
     return Path(str(files(__name__) / "_docs"))
 
 
-__all__ = ["extrema", "saddle", "grid", "topology", "docs_path"]
+__all__ = ["extrema", "saddle", "grid", "topology", "synthetic", "docs_path"]
