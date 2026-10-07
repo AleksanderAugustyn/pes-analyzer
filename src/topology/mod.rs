@@ -1,6 +1,7 @@
 //! `pes_analyzer.topology` submodule: full watershed segmentation and
 //! merge-tree construction.
 
+pub mod dijkstra;
 pub mod mep;
 pub mod steepest;
 pub mod watershed;
