@@ -139,3 +139,56 @@ def test_build_dense_float64_back_compat():
     vals = np.array([1.0, 2.0], dtype=np.float64)
     dense, _ = build_dense(coords, vals)
     assert dense.dtype == np.float64
+
+
+from pes_analyzer.grid import _normalize_axes, index_to_coords, path_length
+
+
+def test_normalize_axes_accepts_mapping_and_sequence():
+    ax = _normalize_axes({"x": [0, 1, 3], "y": np.array([0.5, 1.5])}, (3, 2))
+    assert [a.tolist() for a in ax] == [[0.0, 1.0, 3.0], [0.5, 1.5]]
+    assert all(a.dtype == np.float64 and a.flags["C_CONTIGUOUS"] for a in ax)
+    assert _normalize_axes([[0.0, 1.0, 3.0], [0.5, 1.5]], (3, 2))[0].tolist() == [0.0, 1.0, 3.0]
+    assert _normalize_axes(None, (3, 2)) is None
+
+
+def test_normalize_axes_allows_a_length_one_axis():
+    ax = _normalize_axes([[2.5], [0.0, 1.0]], (1, 2))
+    assert ax[0].tolist() == [2.5]
+
+
+@pytest.mark.parametrize(
+    "axes, shape",
+    [
+        ([[0.0, 1.0]], (2, 2)),                      # wrong number of axes
+        ([[0.0, 1.0, 2.0], [0.0, 1.0]], (2, 2)),     # wrong length
+        ([[0.0, np.nan], [0.0, 1.0]], (2, 2)),       # non-finite
+        ([[1.0, 0.0], [0.0, 1.0]], (2, 2)),          # decreasing
+        ([[0.0, 0.0], [0.0, 1.0]], (2, 2)),          # not strictly increasing
+        ([[[0.0, 1.0]], [0.0, 1.0]], (2, 2)),        # not 1-D
+    ],
+)
+def test_normalize_axes_rejects_bad_input(axes, shape):
+    with pytest.raises(ValueError):
+        _normalize_axes(axes, shape)
+
+
+def test_index_to_coords_and_path_length():
+    axes = {"x": np.array([0.0, 1.0, 3.0]), "y": np.array([10.0, 20.0, 40.0, 80.0])}
+    path = np.array([[0, 0], [1, 1], [2, 3]])
+    np.testing.assert_array_equal(index_to_coords(path, axes), [[0.0, 10.0], [1.0, 20.0], [3.0, 80.0]])
+    np.testing.assert_allclose(path_length(path, axes), [0.0, 10.04987562112089, 70.08319970033543])
+    np.testing.assert_allclose(path_length(path), [0.0, 1.4142135623730951, 3.6502815398728847])
+    assert path_length(path[:1]).tolist() == [0.0]
+
+
+def test_index_to_coords_rejects_negative_and_out_of_range():
+    axes = [np.array([0.0, 1.0, 3.0]), np.array([10.0, 20.0])]
+    with pytest.raises(IndexError):
+        index_to_coords(np.array([[-1, 0]]), axes)       # the -1 rows of minimize_grid
+    with pytest.raises(IndexError):
+        index_to_coords(np.array([[0, 2]]), axes)
+    with pytest.raises(ValueError):
+        index_to_coords(np.array([[0.0, 1.0]]), axes)    # not integers
+    with pytest.raises(ValueError):
+        index_to_coords(np.array([[0, 1, 1]]), axes)     # wrong N
