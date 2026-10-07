@@ -189,3 +189,18 @@ def test_errors():
         find_least_action_path(c, (0, 0), (3, 3), axes=[[3.0, 2.0, 1.0, 0.0], [0.0, 1.0, 2.0, 3.0]])
     with pytest.raises(ValueError):
         find_least_action_path(c, (0, 0), (3, 3), neighborhood="king")
+
+
+def test_float_indices_are_rejected_not_truncated():
+    # coordinates passed by mistake as an index must not silently become a cell
+    c = np.ones((4, 4))
+    with pytest.raises(TypeError):
+        find_steepest_descent_path(c, (0.9, 1.7))
+    with pytest.raises(TypeError):
+        find_least_action_path(c, (0.5, 0), (3, 3))
+    with pytest.raises(TypeError):
+        find_least_action_path(c, (0, 0), np.array([2.6, 3.4]))
+    with pytest.raises(TypeError):
+        find_minimum_ascent_path(c, (0, 0), (3.0, 3.0))
+    # NumPy integers are indices
+    assert find_minimum_ascent_path(c, (np.int64(0), np.int32(0)), np.array([3, 3]))[0][-1].tolist() == [3, 3]

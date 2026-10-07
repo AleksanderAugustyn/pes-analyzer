@@ -620,7 +620,7 @@ From the current cell, the candidates are the stencil neighbours with a strictly
 
 ### Raises
 
-`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` of the wrong length or on a `NaN` cell, invalid `axes` or `neighborhood`; `IndexError` for `start` out of range or negative.
+`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` of the wrong length or on a `NaN` cell, invalid `axes` or `neighborhood`; `IndexError` for `start` out of range or negative. `TypeError` for a non-integer index entry (a float is never truncated to a cell).
 
 ### Example
 
@@ -679,7 +679,7 @@ Two limits: the low-temperature route need not be the route of `find_minimax_pat
 
 ### Raises
 
-`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` or tuple `end` of the wrong length or on a `NaN` cell, a mask of another shape or dtype, non-contiguous or without a `True` cell, any infinite value, any negative cost, invalid `axes` or `neighborhood`; `IndexError` for `start` or a tuple `end` out of range or negative.
+`ValueError` for a non-contiguous or non-float array, N outside [2, 7], a `start` or tuple `end` of the wrong length or on a `NaN` cell, a mask of another shape or dtype, non-contiguous or without a `True` cell, any infinite value, any negative cost, invalid `axes` or `neighborhood`; `IndexError` for `start` or a tuple `end` out of range or negative. `TypeError` for a non-integer index entry in `start` or `end` (a float is never truncated to a cell).
 
 ### Memory
 

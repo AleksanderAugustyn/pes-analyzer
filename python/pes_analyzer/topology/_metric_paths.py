@@ -6,6 +6,8 @@ Thin wrappers over the Rust kernels ``topology::steepest`` and
 
 from __future__ import annotations
 
+import operator
+
 import numpy as np
 import numpy.typing as npt
 
@@ -15,6 +17,11 @@ from pes_analyzer.grid import Axes, _normalize_axes
 __all__ = ["find_least_action_path", "find_minimum_ascent_path", "find_steepest_descent_path"]
 
 PathResult = tuple[npt.NDArray[np.int64], npt.NDArray[np.float64]]
+
+
+def _index(idx) -> tuple[int, ...]:
+    # operator.index, not int(): a coordinate passed by mistake raises instead of truncating to a cell
+    return tuple(operator.index(i) for i in idx)
 
 
 def _axes_arg(axes: Axes, shape: tuple[int, ...]) -> list[list[float]] | None:
@@ -37,7 +44,7 @@ def find_steepest_descent_path(
     """
     energies = np.asarray(energies)
     return _native_topology.find_steepest_descent_path(
-        energies, tuple(int(i) for i in start), _axes_arg(axes, energies.shape), neighborhood
+        energies, _index(start), _axes_arg(axes, energies.shape), neighborhood
     )
 
 
@@ -53,14 +60,14 @@ def _split_end(end, shape: tuple[int, ...]):
         return None, end
     if isinstance(end, np.ndarray) and end.ndim != 1:
         raise ValueError("end must be an index tuple or a boolean mask with the shape of the grid")
-    return tuple(int(i) for i in end), None
+    return _index(end), None
 
 
 def _search(field, start, end, rule: str, axes: Axes, neighborhood: str) -> PathResult | None:
     field = np.asarray(field)
     index, mask = _split_end(end, field.shape)
     return _native_topology.find_search_path(
-        field, tuple(int(i) for i in start), index, mask, rule, _axes_arg(axes, field.shape), neighborhood
+        field, _index(start), index, mask, rule, _axes_arg(axes, field.shape), neighborhood
     )
 
 
