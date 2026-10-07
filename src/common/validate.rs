@@ -114,6 +114,34 @@ pub fn coerce_signed_indices(raw: &[i64]) -> PyResult<Vec<usize>> {
         .collect()
 }
 
+/// Validate the per-axis coordinate arrays of the `axes=` keyword against
+/// the grid shape: one strictly increasing, finite array per axis, each as
+/// long as its axis.
+pub fn check_axes(shape: &[usize], axes: &[Vec<f64>]) -> PyResult<()> {
+    if axes.len() != shape.len() {
+        return Err(PyValueError::new_err(format!(
+            "axes has {} entries, but the grid has {} axes",
+            axes.len(),
+            shape.len()
+        )));
+    }
+    for (axis, (coords, &dim)) in axes.iter().zip(shape.iter()).enumerate() {
+        if coords.len() != dim {
+            return Err(PyValueError::new_err(format!(
+                "axis {axis} has {} coordinates, but the grid has {dim} cells along it",
+                coords.len()
+            )));
+        }
+        if coords.iter().any(|v| !v.is_finite()) {
+            return Err(PyValueError::new_err(format!("axis {axis} contains a non-finite coordinate")));
+        }
+        if coords.windows(2).any(|w| w[1] <= w[0]) {
+            return Err(PyValueError::new_err(format!("axis {axis} must be strictly increasing")));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +243,20 @@ mod tests {
         assert!(check_confirm_range(Some(1), 2).is_err());
         assert!(check_confirm_range(Some(2), 3).is_err());
         assert!(check_confirm_range(Some(4), 5).is_err());
+    }
+
+    #[test]
+    fn check_axes_accepts_matching_increasing_axes() {
+        assert!(check_axes(&[2, 3], &[vec![0.0, 1.0], vec![0.0, 0.5, 2.0]]).is_ok());
+        assert!(check_axes(&[1, 2], &[vec![3.0], vec![0.0, 1.0]]).is_ok());
+    }
+
+    #[test]
+    fn check_axes_rejects_bad_input() {
+        assert!(check_axes(&[2, 3], &[vec![0.0, 1.0]]).is_err());                       // count
+        assert!(check_axes(&[2, 3], &[vec![0.0, 1.0], vec![0.0, 1.0]]).is_err());       // length
+        assert!(check_axes(&[2, 2], &[vec![0.0, f64::NAN], vec![0.0, 1.0]]).is_err()); // non-finite
+        assert!(check_axes(&[2, 2], &[vec![1.0, 0.0], vec![0.0, 1.0]]).is_err());       // decreasing
+        assert!(check_axes(&[2, 2], &[vec![0.0, 0.0], vec![0.0, 1.0]]).is_err());       // equal
     }
 }

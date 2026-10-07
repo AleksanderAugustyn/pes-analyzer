@@ -54,7 +54,7 @@ pub fn axis_neighbors(linear: usize, shape: &[usize], strides: &[usize], out: &m
 }
 
 // ndim is bounded at 7 by the public API (enforced in validate.rs::check_ndim).
-const MAX_NDIM: usize = 7;
+pub const MAX_NDIM: usize = 7;
 
 /// Enumerate the up-to-(2r+1)ᴺ−1 in-bounds neighbors of the cell at `linear`
 /// inside the Chebyshev box of half-width `r` (king-move stencil at `r = 1`)
@@ -219,6 +219,34 @@ pub fn apply_code_checked(
         out += coord as usize * strides[axis];
     }
     Some(out)
+}
+
+/// Offsets Δ ∈ {−1,0,1}ᴺ encoded by a direction code (the inverse of the
+/// odometer encoding documented at `apply_code`). Only `[0..ndim]` is used.
+pub fn code_offsets(code: u16, ndim: usize) -> [i8; MAX_NDIM] {
+    let mut out = [0i8; MAX_NDIM];
+    let mut rem = code as usize;
+    for axis in (0..ndim).rev() {
+        out[axis] = (rem % 3) as i8 - 1;
+        rem /= 3;
+    }
+    out
+}
+
+/// Code of the opposite step: every digit d becomes 2 − d.
+pub fn reverse_code(code: u16, ndim: usize) -> u16 {
+    code_space(ndim) - 1 - code
+}
+
+/// N-D index of `linear` without a heap allocation. Only `[0..strides.len()]` is used.
+pub fn linear_to_coords(linear: usize, strides: &[usize]) -> [usize; MAX_NDIM] {
+    let mut out = [0usize; MAX_NDIM];
+    let mut remaining = linear;
+    for (axis, &stride) in strides.iter().enumerate() {
+        out[axis] = remaining / stride;
+        remaining %= stride;
+    }
+    out
 }
 
 /// `axis_neighbors` with the direction code of each neighbour.
@@ -667,6 +695,48 @@ mod tests {
                     assert_eq!(seen, 2.min(expected.len()));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn reverse_code_undoes_every_step() {
+        let shape = [3usize, 4, 5];
+        let strides = compute_strides(&shape);
+        let centre = index_to_linear(&[1, 2, 2], &strides);
+        let mut nbrs = Vec::new();
+        for stencil in [Stencil::VonNeumann, Stencil::Moore] {
+            stencil.neighbors_with_codes(centre, &shape, &strides, &mut nbrs);
+            assert!(!nbrs.is_empty());
+            for &(v, code) in &nbrs {
+                assert_eq!(apply_code(v, reverse_code(code, 3), &strides), centre);
+            }
+        }
+    }
+
+    #[test]
+    fn code_offsets_match_apply_code() {
+        let shape = [3usize, 4, 5];
+        let strides = compute_strides(&shape);
+        let centre = index_to_linear(&[1, 2, 2], &strides);
+        let mut nbrs = Vec::new();
+        box_neighbors_with_codes(centre, &shape, &strides, &mut nbrs);
+        assert_eq!(nbrs.len(), 26);
+        for &(v, code) in &nbrs {
+            let off = code_offsets(code, 3);
+            let idx = linear_to_index(v, &shape, &strides);
+            for axis in 0..3 {
+                assert_eq!(idx[axis] as i64, [1i64, 2, 2][axis] + off[axis] as i64);
+            }
+        }
+    }
+
+    #[test]
+    fn linear_to_coords_matches_linear_to_index() {
+        let shape = [2usize, 3, 4, 5];
+        let strides = compute_strides(&shape);
+        for lin in 0..120 {
+            let a = linear_to_coords(lin, &strides);
+            assert_eq!(&a[..4], linear_to_index(lin, &shape, &strides).as_slice());
         }
     }
 }
