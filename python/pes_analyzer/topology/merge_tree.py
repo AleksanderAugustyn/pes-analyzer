@@ -211,3 +211,12 @@ class MergeTree:
                 or (np.take(labels, last, axis=axis) == bid).any()
             )
         raise ValueError("side must be 'min', 'max', or 'both'")
+
+
+def _as_tree(obj: "MergeTree | Watershed") -> "MergeTree":
+    """Accept a ``MergeTree`` as is, or wrap a ``Watershed`` on the fly."""
+    if isinstance(obj, MergeTree):
+        return obj
+    if isinstance(obj, Watershed):
+        return MergeTree(obj)
+    raise TypeError(f"expected a MergeTree or a Watershed, got {type(obj).__name__}")

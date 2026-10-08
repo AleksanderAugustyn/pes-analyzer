@@ -7,6 +7,8 @@ full contract.
 
 from __future__ import annotations
 
+import heapq
+
 import numpy as np
 import numpy.typing as npt
 
@@ -77,3 +79,37 @@ def prune_merge_tree(
     return surviving, kept
 
 
+
+
+def _select_basins(
+    basins: list[tuple[tuple[int, ...], float]],
+    merges: list[tuple[tuple[int, ...], float, int, int]],
+    min_persistence: float = 0.0,
+    max_basins: int | None = None,
+) -> list[int]:
+    """Basin ids to draw or tabulate: survivors of ``min_persistence``, at most
+    ``max_basins`` of them (the most persistent, ties to the lower id), closed
+    under parent. Roots have infinite persistence, so every root survives both
+    rules. The closure walk is a safety net: a parent is at least as persistent
+    as each child, so the two rules already give a parent-closed set.
+    """
+    if max_basins is not None and max_basins < 1:
+        raise ValueError("max_basins must be at least 1, or None")
+    persistence = compute_persistence(basins, merges)
+    surviving = [i for i, p in enumerate(persistence) if p >= min_persistence]
+    if max_basins is not None and len(surviving) > max_basins:
+        # roots are exempt from the cap (every root is always drawn); the budget goes to the rest,
+        # picked with a heap: O(B log n) for B survivors and n drawn, not a full sort of all survivors
+        roots = [b for b in surviving if not np.isfinite(persistence[b])]
+        budget = max(0, max_basins - len(roots))
+        rest = heapq.nsmallest(budget, (b for b in surviving if np.isfinite(persistence[b])),
+                               key=lambda b: (-persistence[b], b))
+        surviving = roots + rest
+    parent = {shallower: deeper for _idx, _e, deeper, shallower in merges}
+    chosen = set(surviving)
+    for b in list(chosen):
+        p = parent.get(b)
+        while p is not None and p not in chosen:
+            chosen.add(p)
+            p = parent.get(p)
+    return sorted(chosen)

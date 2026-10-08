@@ -183,3 +183,53 @@ def test_touches_edge_uses_face_slices_only(monkeypatch):
     # Exactly one take, on the int32 label grid object itself — a `labels == bid`
     # temporary would show up here as a bool array that is not ws.labels.
     assert calls == [((5, 5), np.dtype(np.int32), True)]
+
+
+from pes_analyzer.topology._tree import _select_basins
+from pes_analyzer.topology.merge_tree import _as_tree
+
+
+def _fan():
+    """Root 0 with children 1, 2, 3 (saddles 3, 5, 4) and grandchild 4 under 1 (saddle 2).
+
+    persistences: 1 -> 2.0, 2 -> 4.5, 3 -> 2.5, 4 -> 0.5, root inf.
+    """
+    basins = [((0, 0), 0.0), ((0, 2), 1.0), ((0, 4), 0.5), ((0, 6), 1.5), ((0, 8), 1.5)]
+    merges = [((0, 7), 2.0, 1, 4), ((0, 1), 3.0, 0, 1), ((0, 5), 4.0, 0, 3), ((0, 3), 5.0, 0, 2)]
+    return Watershed(labels=None, basins=basins, merges=merges, neighborhood="von_neumann",
+                     parents=None, merge_table=None, dtype=np.dtype("float64"), fingerprint=b"\x00" * 16)
+
+
+def _forest():
+    """Two roots (0 and 2), each with one child; no merge joins the two halves."""
+    basins = [((0, 0), 0.0), ((0, 3), 1.0), ((1, 0), 0.5), ((1, 3), 2.0)]
+    merges = [((0, 1), 3.0, 0, 1), ((1, 1), 4.0, 2, 3)]
+    return Watershed(labels=None, basins=basins, merges=merges, neighborhood="von_neumann",
+                     parents=None, merge_table=None, dtype=np.dtype("float64"), fingerprint=b"\x00" * 16)
+
+
+def test_select_basins_threshold_cap_and_closure():
+    ws = _fan()
+    assert _select_basins(ws.basins, ws.merges) == [0, 1, 2, 3, 4]
+    assert _select_basins(ws.basins, ws.merges, 1.0) == [0, 1, 2, 3]
+    assert _select_basins(ws.basins, ws.merges, 0.0, 3) == [0, 2, 3]
+    # the cap keeps 4 (0.5) only together with its parent 1 when the budget reaches it
+    assert _select_basins(ws.basins, ws.merges, 0.0, 4) == [0, 1, 2, 3]
+    assert _select_basins(ws.basins, ws.merges, 100.0) == [0]
+    with pytest.raises(ValueError):
+        _select_basins(ws.basins, ws.merges, 0.0, 0)
+
+
+def test_select_basins_keeps_every_root():
+    ws = _forest()
+    assert _select_basins(ws.basins, ws.merges, 2.5) == [0, 2]
+    assert _select_basins(ws.basins, ws.merges, 0.0, 1) == [0, 2]      # roots are never capped away
+
+
+def test_as_tree_accepts_tree_or_watershed():
+    ws = _forest()
+    tree = MergeTree(ws)
+    assert _as_tree(tree) is tree
+    assert _as_tree(ws).ws is ws
+    with pytest.raises(TypeError):
+        _as_tree(ws.basins)
