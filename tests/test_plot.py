@@ -171,3 +171,49 @@ def test_plot_profile_validation():
     bad = analyze_path_profile(np.array([0.0, 2.0, 1.0, 3.0, 0.5]))        # indices up to 4
     with pytest.raises(ValueError):
         plot_profile(energies, profile=bad)
+
+
+from matplotlib.collections import LineCollection  # noqa: E402
+
+from pes_analyzer.plot import merge_tree_layout, plot_merge_tree  # noqa: E402
+from pes_analyzer.topology import MergeTree, Watershed  # noqa: E402
+
+
+def _fan_ws():
+    basins = [((0, 0), 0.0), ((0, 2), 1.0), ((0, 4), 0.5), ((0, 6), 1.5), ((0, 8), 1.5)]
+    merges = [((0, 7), 2.0, 1, 4), ((0, 1), 3.0, 0, 1), ((0, 5), 4.0, 0, 3), ((0, 3), 5.0, 0, 2)]
+    return Watershed(labels=None, basins=basins, merges=merges, neighborhood="von_neumann",
+                     parents=None, merge_table=None, dtype=np.dtype("float64"), fingerprint=b"\x00" * 16)
+
+
+def test_plot_merge_tree_segments_and_labels():
+    ws = _fan_ws()
+    layout = merge_tree_layout(ws)
+    _fig, ax = plt.subplots()
+    out = plot_merge_tree(ws, ax=ax, labels={0: "deepest", 4: "leaf"}, saddle_labels={2: "highest saddle"}, label="E")
+    assert out is ax
+    lines = [c for c in ax.collections if isinstance(c, LineCollection)]
+    assert len(lines) == 1 and len(lines[0].get_segments()) == len(layout.branches) + len(layout.connectors)
+    texts = {t.get_text(): t.xy for t in ax.texts}
+    assert texts["deepest"] == (layout.x[0], 0.0) and texts["leaf"] == (layout.x[4], 1.5)
+    x_c, x_p, e_s, _ = next(c for c in layout.connectors if c[3] == 2)
+    assert texts["highest saddle"] == (0.5 * (x_c + x_p), e_s)
+    markers = sorted(ln.get_marker() for ln in ax.lines)
+    assert markers == ["o", "o", "s"]
+    assert ax.get_ylabel() == "E" and ax.get_xticks().size == 0
+    assert ax.get_xlim() == (-1.0, 5.0)
+    lo, hi = ax.get_ylim()
+    assert lo < 0.0 and hi > layout.top
+    _fig, ax = plt.subplots()
+    plot_merge_tree(MergeTree(ws), ax=ax, min_persistence=1.0)
+    assert len(ax.collections[0].get_segments()) == 4 + 3
+
+
+def test_plot_merge_tree_rejects_undrawn_ids():
+    ws = _fan_ws()
+    with pytest.raises(ValueError, match="4"):
+        plot_merge_tree(ws, min_persistence=1.0, labels={4: "pruned away"})
+    with pytest.raises(ValueError, match="1"):
+        plot_merge_tree(ws, max_basins=3, saddle_labels={1: "capped away"})
+    with pytest.raises(ValueError, match="root"):
+        plot_merge_tree(ws, saddle_labels={0: "no saddle"})

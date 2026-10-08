@@ -4,6 +4,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes as MplAxes
+from matplotlib.collections import LineCollection
+
 from ..topology._tree import _select_basins
 from ..topology.merge_tree import MergeTree, _as_tree
 
@@ -77,3 +81,52 @@ def merge_tree_layout(tree, *, min_persistence: float = 0.0, max_basins: int | N
         b: (x[b], e_min[b], top if tree.node(b).parent is None else tree.node(b).saddle_to_parent[1]) for b in ids
     }
     return MergeTreeLayout(ids, x, branches, connectors, top)
+
+
+def plot_merge_tree(
+    tree,
+    *,
+    ax: MplAxes | None = None,
+    min_persistence: float = 0.0,
+    max_basins: int | None = 2000,
+    labels: Mapping[int, str] | None = None,
+    saddle_labels: Mapping[int, str] | None = None,
+    label: str = "energy",
+    color="0.3",
+) -> MplAxes:
+    """Draw the merge-tree dendrogram of :func:`merge_tree_layout` with the same selection arguments.
+
+    ``labels`` puts a circle and text at a basin's minimum; ``saddle_labels``
+    a square and text at the midpoint of the connector where that basin
+    merges. An id that is not drawn, or a root in ``saddle_labels``, is a
+    ``ValueError``. Returns ``ax``.
+    """
+    layout = merge_tree_layout(tree, min_persistence=min_persistence, max_basins=max_basins)
+    if ax is None:
+        ax = plt.gca()
+    segments = [[(x, lo), (x, hi)] for x, lo, hi in layout.branches.values()]
+    segments += [[(x_c, e), (x_p, e)] for x_c, x_p, e, _child in layout.connectors]
+    ax.add_collection(LineCollection(segments, colors=color, linewidths=1.0))
+    by_child = {c[3]: c for c in layout.connectors}
+    for mapping, at_saddle in ((labels, False), (saddle_labels, True)):
+        for b, text in (mapping or {}).items():
+            if b not in layout.branches:
+                raise ValueError(f"basin {b} is not drawn (pruned or capped); lower min_persistence or raise max_basins")
+            if at_saddle:
+                if b not in by_child:
+                    raise ValueError(f"basin {b} is a root and has no saddle")
+                x_c, x_p, e, _child = by_child[b]
+                x, marker = 0.5 * (x_c + x_p), "s"
+            else:
+                x, e, _top = layout.branches[b]
+                marker = "o"
+            ax.plot([x], [e], linestyle="none", marker=marker, markersize=7,
+                    markerfacecolor=color, markeredgecolor="black")
+            ax.annotate(str(text), (x, e), xytext=(4, 0), textcoords="offset points", va="center", ha="left")
+    lowest = min(e_min for _x, e_min, _top in layout.branches.values())
+    pad = 0.02 * (layout.top - lowest) or 0.5
+    ax.set_xlim(-1.0, float(len(layout.basin_ids)))
+    ax.set_ylim(lowest - pad, layout.top + pad)
+    ax.set_xticks([])
+    ax.set_ylabel(label)
+    return ax

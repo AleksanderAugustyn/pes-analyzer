@@ -9,6 +9,6 @@ from __future__ import annotations
 
 from ._map import plot_map, plot_path
 from ._profile import plot_profile
-from ._tree import MergeTreeLayout, merge_tree_layout
+from ._tree import MergeTreeLayout, merge_tree_layout, plot_merge_tree
 
-__all__ = ["MergeTreeLayout", "merge_tree_layout", "plot_map", "plot_path", "plot_profile"]
+__all__ = ["MergeTreeLayout", "merge_tree_layout", "plot_map", "plot_merge_tree", "plot_path", "plot_profile"]
