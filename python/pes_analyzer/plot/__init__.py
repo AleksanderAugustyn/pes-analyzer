@@ -7,6 +7,7 @@ saving and backends are the caller's. See ``_docs/API.md`` section ``plot``.
 """
 from __future__ import annotations
 
+from ._map import plot_map, plot_path
 from ._tree import MergeTreeLayout, merge_tree_layout
 
-__all__ = ["MergeTreeLayout", "merge_tree_layout"]
+__all__ = ["MergeTreeLayout", "merge_tree_layout", "plot_map", "plot_path"]
