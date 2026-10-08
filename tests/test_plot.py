@@ -123,3 +123,51 @@ def test_plot_path_points_and_float_indices():
     assert len(ax.lines[0].get_xydata()) == 3
     with pytest.raises(ValueError):
         plot_path(points.astype(float), ax=ax)
+
+
+from pes_analyzer.grid import path_length  # noqa: E402
+from pes_analyzer.plot import plot_profile  # noqa: E402
+from pes_analyzer.topology import analyze_path_profile  # noqa: E402
+
+
+def test_plot_profile_x_axis_and_markers():
+    energies = np.array([0.0, 2.0, 1.0, 3.0, 0.5])
+    path = np.array([[0, 0], [0, 1], [1, 1], [1, 2], [2, 2]])
+    axes = [np.array([0.0, 1.0, 3.0]), np.array([0.0, 2.0, 4.0])]
+    profile = analyze_path_profile(energies)
+    _fig, ax = plt.subplots()
+    out = plot_profile(energies, indices=path, axes=axes, profile=profile, ax=ax)
+    assert out is ax
+    line = ax.lines[0]
+    np.testing.assert_allclose(line.get_xdata(), path_length(path, axes))
+    np.testing.assert_allclose(line.get_ydata(), energies)
+    assert line.get_marker() == "."
+    markers = {ln.get_marker(): len(ln.get_xydata()) for ln in ax.lines[1:]}
+    assert markers == {"o": len(profile.minima), "s": len(profile.saddles)}
+    assert all(ln.get_markerfacecolor() == line.get_color() for ln in ax.lines[1:])
+    assert ax.get_xlabel() == "length" and ax.get_ylabel() == "energy"
+    _fig, ax = plt.subplots()
+    plot_profile(energies, indices=path, ax=ax)
+    assert ax.get_xlabel() == "length (cells)"
+    _fig, ax = plt.subplots()
+    plot_profile(energies, ax=ax, label="climb")
+    np.testing.assert_allclose(ax.lines[0].get_xdata(), np.arange(5))
+    assert ax.get_xlabel() == "step" and ax.get_ylabel() == "climb"
+
+
+def test_plot_profile_draws_a_cumulative_climb_unchanged():
+    climb = np.array([0.0, 3.0, 3.0, 4.0, 4.0])
+    _fig, ax = plt.subplots()
+    plot_profile(climb, ax=ax, label="climb")
+    np.testing.assert_array_equal(ax.lines[0].get_ydata(), climb)
+
+
+def test_plot_profile_validation():
+    energies = np.array([0.0, 2.0, 1.0])
+    with pytest.raises(ValueError):
+        plot_profile(energies, indices=np.zeros((2, 2), int))
+    with pytest.raises(ValueError):
+        plot_profile(np.zeros((2, 2)))
+    bad = analyze_path_profile(np.array([0.0, 2.0, 1.0, 3.0, 0.5]))        # indices up to 4
+    with pytest.raises(ValueError):
+        plot_profile(energies, profile=bad)
