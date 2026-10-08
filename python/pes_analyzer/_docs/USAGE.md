@@ -13,6 +13,8 @@ find_minima_grid       dense grid                   ->  local minima
 find_watershed_segmentation  dense grid             ->  basin labels + merge tree
 MergeTree              (labels, basins, merges)     ->  traversable basin tree
 find_minimax_path + analyze_path_profile     ->  barrier profile between two cells
+plot.plot_map / plot_path / plot_profile / plot_merge_tree   ->  figures on your Axes
+tables.*_table + write_csv                                  ->  CSV reference outputs
 ```
 
 ## 1. Build the dense grid
@@ -131,7 +133,53 @@ jumps = jump_map(index, keep=(0, 1))                      # cells the minimiser 
 
 `find_steepest_descent_path(energies, start, axes=axes)` follows the slope from a cell; `find_least_action_path(cost, start, end, axes=axes)` minimises ∫ cost ds for a cost you build; `find_minimum_ascent_path(energies, start, end)` minimises the total climb. `end` may be a boolean mask of target cells. See the "Path kinds" table in `API.md`.
 
-## 6. Release the grid arrays
+## 6. Plot
+
+`pes_analyzer.plot` is imported explicitly and draws on an `Axes` you own; nothing is interpolated or smoothed, and saving is yours. A self-contained run on the `synthetic.hidden_barrier` surface (the walkthrough's toy grid above is 2-D and too small to minimise):
+
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+from pes_analyzer.extrema import find_minima_grid
+from pes_analyzer.grid import jump_map, minimize_grid
+from pes_analyzer.plot import plot_map, plot_merge_tree, plot_path, plot_profile
+from pes_analyzer.synthetic import hidden_barrier
+from pes_analyzer.topology import MergeTree, analyze_path_profile, find_minimax_path, find_watershed_segmentation
+
+axes = {"x": np.linspace(-1.5, 1.5, 61), "y": np.linspace(-0.5, 0.5, 21), "z": np.linspace(-1.5, 1.5, 61)}
+energies = hidden_barrier().sample(axes)
+minima = find_minima_grid(energies)
+tree = MergeTree(find_watershed_segmentation(energies, parents=True))
+minimum, index = minimize_grid(energies, keep=(0, 1))
+jumps = jump_map(index, keep=(0, 1))
+path_indices, path_energies = find_minimax_path(energies, tree.ws.basins[0][0], tree.ws.basins[1][0], tree=tree)
+
+fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+plot_map(minimum, [axes["x"], axes["y"]], ax=axs[0, 0], mask=jumps >= 5)   # map; hatched where the minimiser jumps
+plot_path(path_indices, axes, keep=(0, 1), ax=axs[0, 0], color="red")     # the minimax path projected onto it
+plot_map(jumps, [axes["x"], axes["y"]], ax=axs[0, 1], label="jump (cells)")
+plot_merge_tree(tree, ax=axs[1, 0], min_persistence=0.1, labels={0: "A", 1: "B"})
+plot_profile(path_energies, indices=path_indices, axes=axes, profile=analyze_path_profile(path_energies), ax=axs[1, 1])
+fig.savefig("hidden_barrier.pdf")
+```
+
+On the map the barrier between the two deep basins rises 1.5 above them, while the merge tree's saddle between them rises 5.51 (at 5.0125 on this grid, the minima at −0.5): the valley switch the hatched cells mark is where the map hides it.
+
+## 7. Save
+
+One table per object, one CSV writer, continuing the run above. The same files are the reference outputs of the shipped examples.
+
+```python
+from pes_analyzer.tables import basins_table, minima_table, path_table, write_csv
+
+write_csv("minima.csv", minima_table(minima, axes))
+write_csv("basins.csv", basins_table(tree, axes, min_persistence=0.1))
+write_csv("path.csv", path_table(path_indices, path_energies, axes))
+```
+
+`read_csv` reads them back as the same column dicts.
+
+## 8. Release the grid arrays
 
 Once membership queries and paths are done, drop the grid-sized arrays — they are
 the bulk of the resident memory (4N + 2N bytes):
@@ -161,6 +209,7 @@ tree.basin_of_point((0, 1))     # -> RuntimeError: labels were dropped
   `ValueError`.
 - **Arrays must be C-contiguous `float32` or `float64`** of ndim `N ∈ [2, 7]`. Pass a slice or
   transpose through `np.ascontiguousarray(arr)` first.
+- **Maps are axis-0-horizontal.** `plot_map(values, axes)` puts `values[i, j]` at `x = axes[0][i]`; pass `values.T` for an image-wise grid.
 
 ## Locating these docs at runtime
 

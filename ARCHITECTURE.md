@@ -33,12 +33,15 @@ pes-analyzer/
 │   ├── __init__.py       — re-exports submodules
 │   ├── grid.py           — pure-NumPy helpers: build_dense, minimize_grid, jump_map, index_to_coords, path_length
 │   ├── synthetic.py      — analytic surfaces with exact minima, saddles and incidence
+│   ├── tables.py         — minima/basins/path tables as column dicts; write_csv / read_csv
+│   ├── plot/             — matplotlib helpers (imported explicitly): `_map.py` (plot_map, plot_path),
+│   │                       `_profile.py` (plot_profile), `_tree.py` (merge_tree_layout, plot_merge_tree)
 │   ├── _native.abi3.so   — compiled extension (built by maturin)
 │   ├── saddle/__init__.pyi — type stub (see below)
 │   ├── extrema/__init__.pyi — type stubs for all three extrema functions
 │   ├── topology/         — real package: `_flood.py` (Watershed + the two kernel wrappers),
 │   │                       `_metric_paths.py` (steepest descent, least action, minimum ascent),
-│   │                       `merge_tree.py`, `_tree.py`, `_path.py`, `__init__.pyi`
+│   │                       `merge_tree.py`, `_tree.py` (persistence, pruning, `_select_basins`), `_path.py`, `__init__.pyi`
 │   └── _docs/            — API.md / ALGORITHMS.md / USAGE.md, shipped in the wheel
 └── tests/                — pytest integration tests
 ```

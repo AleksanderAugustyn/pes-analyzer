@@ -884,6 +884,135 @@ the end-to-end pipeline these primitives plug into.
 
 ---
 
+## `plot`
+
+`import pes_analyzer.plot` is explicit; `import pes_analyzer` does not load matplotlib. Every helper takes `ax=None` (then `matplotlib.pyplot.gca()`), draws, and returns the `Axes`. The library never creates files, sets a backend, or calls `show`; figures, titles and `savefig` are yours. Energy axes and colour bars are labelled `label`, default `"energy"`.
+
+Map orientation: `values[i, j]` sits at `x = axes[0][i]`, `y = axes[1][j]`. Axis 0 is horizontal, the order of `keep` in `minimize_grid`, so `minimum, index = minimize_grid(E, keep=(c, a4))` plots with c horizontal. Transpose a grid stored image-wise (`E[iy, ix]`).
+
+Where `axes` is a mapping, its keys label the plot axes and name the coordinate columns of `tables`; the kernels keep ignoring the names.
+
+### `plot_map(values, axes=None, *, ax=None, cmap=None, levels=None, contours=None, mask=None, colorbar=True, label="energy", **mesh_kw) -> Axes`
+
+- `values`: 2-D, at least two cells per side. `NaN` cells are blank.
+- `axes`: two 1-D arrays or a two-entry mapping (keys become the axis labels); `None` gives index coordinates labelled `index 0`, `index 1`.
+- The fill is `pcolormesh` on **cell edges**: midpoints between neighbouring coordinates, half a step beyond the ends. Unequal steps show as unequal cells; no value is interpolated. The mesh is `rasterized=True`, so a PDF stays small while axes and text remain vector. `mesh_kw` reaches `pcolormesh` (`vmin`, `vmax`, `norm`, `alpha`, …).
+- `levels`: a strictly increasing sequence of at least two boundaries → discrete bands (`BoundaryNorm(levels, cmap.N, extend="both")`); values outside the range take the colour map's under and over colours. For 1-unit bands with white above 20: `levels=np.arange(-10, 21)` and a colour map with `set_over("white")`. `levels` together with `norm` is a `ValueError`.
+- `contours`: a sequence of levels → black labelled contour lines through the cell **centres**. Contour lines interpolate linearly between centres; the fill does not.
+- `mask`: boolean array of the same shape; `True` cells are hatched over the fill. This is the jump-map overlay (`mask=jumps >= 5`) and serves any cell mask. The jump map itself is `plot_map(jumps, axes, label="jump (cells)")`.
+- `colorbar=True` attaches a colour bar labelled `label`.
+
+### `plot_path(indices, axes=None, *, keep=(0, 1), ax=None, **line_kw) -> Axes`
+
+Projects a `(K, N)` path onto the two axes `keep` (the map's `keep`) with `index_to_coords`, or with the indices themselves when `axes` is `None`, and draws a line with a marker at every cell. `line_kw` overrides the style, so an `(M, N)` array of minima is drawn as points with `linestyle="none", marker="o"`. A float array, or a `keep` that is not two distinct axes in `[0, N)`, is a `ValueError`; non-integer `keep` entries are a `TypeError`, never truncated.
+
+### `plot_profile(values, *, indices=None, axes=None, profile=None, ax=None, label="energy", **line_kw) -> Axes`
+
+Draws a `(K,)` quantity along a path: the energy profile that `find_minimax_path` and `find_steepest_descent_path` return, or the cumulative action or climb that `find_least_action_path` and `find_minimum_ascent_path` return (then pass `label="action"` or `"climb"`). x is `path_length(indices, axes)` when `indices` is given (labelled `length`, or `length (cells)` without `axes`), else the step number. `profile`, a `PathProfile` of the same values, marks its minima with circles and its saddles with squares. Several paths: call again on the same `ax`.
+
+### `merge_tree_layout(tree, *, min_persistence=0.0, max_basins=2000) -> MergeTreeLayout`
+
+Pure Python; `tree` is a `MergeTree` or a `Watershed`. Selects the basins to draw: survivors of `min_persistence`, then the `max_basins` most persistent (ties to the lower id; `None` disables the cap), closed under parent. Every root (a basin that never merged, infinite persistence) is always drawn, so a grid cut by `NaN` walls gives a forest with one block per root. Placement is crossing-free: each subtree owns a contiguous block of integer slots; a basin's children, sorted by saddle energy, take sides alternately right, left, right, … so the lowest saddle sits nearest; roots go left to right by id. See `ALGORITHMS.md`.
+
+Fields of the frozen dataclass:
+
+| Field | Content |
+|---|---|
+| `basin_ids` | drawn basin ids, ascending |
+| `x` | basin id → slot in `[0, n)` |
+| `branches` | basin id → `(x, e_min, e_top)`; `e_top` is the basin's own saddle energy, `top` for a root |
+| `connectors` | `(x_child, x_parent, e_saddle, child_id)`, ascending saddle energy |
+| `top` | the highest of the connector energies and the drawn minima, plus 5% of the span down to the lowest drawn minimum; plus 1 when the span is zero |
+
+```python
+import numpy as np
+from pes_analyzer.plot import merge_tree_layout
+from pes_analyzer.topology import find_watershed_segmentation
+
+energies = np.array([[0.0, 3.0, 8.0, 4.0, 1.0, 3.0, 5.0, 4.0, 2.0]])
+layout = merge_tree_layout(find_watershed_segmentation(energies))
+print(layout.x)             # {0: 0, 1: 1, 2: 2}
+print(layout.connectors)    # [(2, 1, 5.0, 2), (1, 0, 8.0, 1)]
+print(layout.branches)      # {0: (0, 0.0, 8.4), 1: (1, 1.0, 8.0), 2: (2, 2.0, 5.0)}
+```
+
+### `plot_merge_tree(tree, *, ax=None, min_persistence=0.0, max_basins=2000, labels=None, saddle_labels=None, label="energy", color="0.3") -> Axes`
+
+Draws the layout's branches and connectors as one `LineCollection`, x ticks hidden. `labels` maps a basin id to text placed at its minimum (with a circle); `saddle_labels` maps a basin id to text at the midpoint of the connector where that basin merges (with a square). Plain `annotate`, no de-overlap: the pruned tree is sparse, and anything denser is your figure. An id that is not drawn, or a root in `saddle_labels`, is a `ValueError` naming the id, so a pruned basin is never silently dropped. For your own annotations call `merge_tree_layout` with the same arguments.
+
+```python
+from matplotlib.figure import Figure
+from pes_analyzer.grid import jump_map, minimize_grid
+from pes_analyzer.plot import plot_map, plot_merge_tree, plot_path
+from pes_analyzer.synthetic import hidden_barrier
+from pes_analyzer.topology import MergeTree, find_watershed_segmentation
+
+surf = hidden_barrier()
+axes = {"x": np.linspace(-1.5, 1.5, 61), "y": np.linspace(-0.5, 0.5, 21), "z": np.linspace(-1.5, 1.5, 61)}
+energies = surf.sample(axes)
+minimum, index = minimize_grid(energies, keep=(0, 1))
+jumps = jump_map(index, keep=(0, 1))
+
+fig = Figure(figsize=(10, 4))
+ax_map, ax_tree = fig.subplots(1, 2)
+plot_map(minimum, [axes["x"], axes["y"]], ax=ax_map, levels=np.arange(-1.0, 7.0), mask=jumps >= 5)
+tree = MergeTree(find_watershed_segmentation(energies))
+plot_merge_tree(tree, ax=ax_tree, min_persistence=0.1, labels={0: "A"})
+fig.savefig("hidden_barrier.pdf")
+```
+
+## `tables`
+
+A table is a plain `dict[str, numpy.ndarray]`: columns of one length in insertion order, so `pandas.DataFrame(table)` works if you want it. Columns hold integers, booleans and floats only. Index columns are `index_0 … index_{N−1}` (`int64`); coordinate columns appear only when `axes` is given and are named by the mapping keys or `x0 … x{N−1}` for a sequence (`float64`, from `index_to_coords`); values are `float64` (`float32` input is cast exactly). A coordinate column whose name coincides with another column of the table (an axis called `energy`, `step`, `index_0`, or `energy` under the `min_` prefix) is a `ValueError`.
+
+### `minima_table(points, axes=None, *, ndim=None) -> table`
+
+Any list of `(index, energy)` pairs (`find_minima_grid`, `find_maxima_grid`, a `Watershed`'s `basins`) in input order: `index_*`, coordinates, `energy`. N comes from the first point, else from `axes`, else from `ndim`; an empty list with neither is a `ValueError`.
+
+### `basins_table(tree, axes=None, *, min_persistence=0.0) -> table`
+
+The merge tree as a table, one row per selected basin, ascending id: `basin`, `min_index_*`, `min_<name>`, `min_energy`, `parent`, `saddle_index_*`, `saddle_<name>`, `saddle_energy`, `persistence`. The parent of a selected basin is always selected. Every root has `parent` −1, saddle indices −1, saddle coordinates and `saddle_energy` `NaN`, `persistence` `inf`.
+
+### `path_table(indices, energies, axes=None) -> table`
+
+`step`, `index_*`, coordinates, `length` (cumulative; in cells when `axes` is `None`), `energy`. `energies` are the energies **at the path cells**: for `find_least_action_path` and `find_minimum_ascent_path`, whose second output is a cumulative weight, gather them with `E[tuple(idx.T)]` and add the weight as one more column (`table["action"] = action`) before writing.
+
+### `write_csv(path, table)` and `read_csv(path) -> table`
+
+Comma separated, header row, `\n` endings, UTF-8, no index column. Integers and booleans as integers, floats as Python `repr` (shortest round trip; `nan`, `inf`, `-inf` spelled so), so the file is exact and deterministic. Any other dtype is a `ValueError`. `read_csv` is the inverse for these files only: a column is `int64` when every entry parses as an integer, else `float64`; a header-only file comes back with zero-length `float64` columns, the one case where a dtype changes.
+
+```python
+import numpy as np
+from pes_analyzer.tables import minima_table, path_table, write_csv, read_csv
+
+axes = {"x": np.array([0.0, 1.0, 3.0]), "y": np.array([10.0, 20.0, 40.0, 80.0])}
+table = minima_table([((0, 1), 2.5), ((2, 3), -1.0)], axes)
+print(list(table))          # ['index_0', 'index_1', 'x', 'y', 'energy']
+write_csv("minima.csv", table)
+# index_0,index_1,x,y,energy
+# 0,1,0.0,20.0,2.5
+# 2,3,3.0,80.0,-1.0
+back = read_csv("minima.csv")
+print(back["index_0"].dtype, back["x"])     # int64 [0. 3.]
+path = path_table(np.array([[0, 0], [1, 1], [2, 3]]), [1.0, 2.0, 0.5], axes)
+print(list(path))           # ['step', 'index_0', 'index_1', 'x', 'y', 'length', 'energy']
+```
+
+```python
+from pes_analyzer.tables import basins_table
+from pes_analyzer.topology import MergeTree, find_watershed_segmentation
+
+energies = np.array([[0.0, 3.0, 8.0, 4.0, 1.0, 3.0, 5.0, 4.0, 2.0]])
+tree = MergeTree(find_watershed_segmentation(energies))
+table = basins_table(tree)
+print(table["basin"], table["parent"])              # [0 1 2] [-1  0  1]
+print(table["saddle_index_1"], table["saddle_energy"])   # [-1  2  6] [nan  8.  5.]
+print(table["persistence"])                         # [inf  7.  3.]
+print(basins_table(tree, min_persistence=4.0)["basin"])  # [0 1]
+```
+
+---
+
 ## Common errors
 
 | Error | Cause | Fix |
@@ -903,3 +1032,7 @@ the end-to-end pipeline these primitives plug into.
 | `ValueError: ... contains an infinite value` | `±inf` in the input of a search kernel | replace with `NaN` (a wall) or a finite value |
 | `ValueError: axis 2 must be strictly increasing` | descending or repeated axis coordinates | sort the axis, or pass the `axes` dict `build_dense` returned |
 | `IndexError: index out of bounds for axis 0 with size 3` from `index_to_coords` | a `-1` row of `minimize_grid` | mask with `index[..., 0] >= 0` first |
+| `ValueError: column 'energy' is defined twice` | an axis name collides with a table column | rename the axis in the `axes` mapping |
+| `ValueError: basin 93940 is not drawn (pruned or capped)` | `labels=` names a basin outside the `plot_merge_tree` selection | lower `min_persistence` or raise `max_basins` |
+| `ValueError: pass either levels= or norm=, not both` | both discrete bands and a norm given to `plot_map` | drop one |
+| `ValueError: tables hold integer, boolean and floating columns only` | a string or object column in `write_csv` | keep text out of the table; the format is numeric |

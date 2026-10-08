@@ -28,6 +28,8 @@ Quantum-chemistry calculations produce potential energy surfaces (PES) as dense 
 pip install pes_analyzer
 ```
 
+Runtime dependencies are NumPy and matplotlib; pip installs both.
+
 Wheels bundle the full reference docs under `pes_analyzer/_docs/` — see
 [Documentation](#documentation). Building from source (PyO3 + Rust via
 [maturin](https://www.maturin.rs/)) and contributor workflows are covered in

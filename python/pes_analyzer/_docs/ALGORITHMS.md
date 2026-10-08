@@ -133,6 +133,18 @@ Memory: `f64` action, `f64` length and `u16` back-pointer per cell (18 bytes), p
 
 The flood kernels (`find_iwf_grid`, `find_watershed_segmentation`, `find_minimax_path`), the extrema kernels and `minimize_grid` receive only the array. They use the order of the values and cell adjacency, never coordinates, so their output is the same for any step pattern, uniform or not; what changes with the sampling is how well the grid resolves the surface. The kernels whose result depends on distances take `axes=` and use the Euclidean distance between cell coordinates: `find_steepest_descent_path` (the slope), `find_least_action_path` (ds), `find_minimum_ascent_path` (the length tie-break only). The test suite samples the `synthetic` surfaces on uniform, anisotropic and variable-step grids and checks every kernel against the analytic minima and saddles with tolerances set by the local cell.
 
+## Merge-tree layout
+
+`plot.merge_tree_layout` draws the merge tree as a dendrogram: energy on the vertical axis, one integer slot per drawn basin on the horizontal axis, a vertical branch from each basin's minimum to the saddle where it merges, and a horizontal connector at that saddle to its parent's slot.
+
+**Selection.** Basins with persistence at or above `min_persistence` survive; if more than `max_basins` do, the most persistent are kept (ties to the lower id). A parent is at least as persistent as each child (it is deeper and dies no earlier than the child joins it), so the selected set is closed under parent; the code adds any missing ancestor rather than relying on the inequality. A root never merged and has infinite persistence, so every root is drawn; a grid cut by `NaN` walls gives a forest, one block per root, left to right by id.
+
+**Placement.** Each subtree owns a contiguous block of slots. A basin's drawn children are sorted by `(saddle energy, id)` and placed alternately to the right and to the left of it, nearest first, each with its own block. Slots are numbered in one left-to-right pass.
+
+**No crossing.** A connector runs at the child's saddle energy between the child's slot and the parent's. Every basin strictly between them is a sibling that joined the parent at a lower or equal saddle, or a descendant of such a sibling or of the child itself; each of those branches ends at its own saddle, which is at most the connector's energy. The parent's branch is at the connector's end. So no connector crosses a branch, and the tests check this invariant on analytic surfaces.
+
+The vertical extent: every root's branch ends at `top`, the highest of the connector energies and the drawn minima plus 5% of the span down to the lowest drawn minimum (plus 1 when the span is zero), so a root that sits above every saddle, as happens in a forest, is never clipped. Cost: one pass over all basins for persistence, then `O(n log n)` in the drawn `n`.
+
 ## Neighborhood stencils
 
 `find_iwf_grid`, `find_watershed_segmentation`, and `find_minimax_path` accept `neighborhood="von_neumann"` (default; 2N axis neighbours) or `"moore"` (3ᴺ−1 Chebyshev neighbours at range 1; the range is fixed). The length-dependent kernels (`find_steepest_descent_path`, `find_least_action_path`) default to `"moore"` (von Neumann measures length in the Manhattan metric); `find_minimum_ascent_path` defaults to `"von_neumann"` like the flood kernels. All accept both.
