@@ -100,3 +100,66 @@ def test_tables_reject_colliding_axis_names():
     tree = MergeTree(find_watershed_segmentation(_row_grid()))
     with pytest.raises(ValueError, match="min_energy"):
         basins_table(tree, {"r": np.array([0.0]), "energy": np.arange(9, dtype=float)})
+
+
+from pes_analyzer.tables import read_csv, write_csv
+
+
+def _roundtrip(tmp_path, table):
+    write_csv(tmp_path / "t.csv", table)
+    return read_csv(tmp_path / "t.csv")
+
+
+def test_csv_round_trip_values_and_dtypes(tmp_path):
+    table = {
+        "i": np.array([3, -1, 0], dtype=np.int64),
+        "b": np.array([True, False, True]),
+        "f": np.array([0.1, np.nan, np.inf]),
+        "g": np.array([-np.inf, 1e-300, 123456789.123456789]),
+        "h": np.array([1.0, 2.0, 3.0]),
+    }
+    back = _roundtrip(tmp_path, table)
+    assert list(back) == list(table)
+    assert back["i"].dtype == np.int64 and back["i"].tolist() == [3, -1, 0]
+    assert back["b"].dtype == np.int64 and back["b"].tolist() == [1, 0, 1]
+    for name in ("f", "g", "h"):
+        assert back[name].dtype == np.float64
+        np.testing.assert_array_equal(back[name], table[name])
+    text = (tmp_path / "t.csv").read_text(encoding="utf-8")
+    assert text.splitlines()[0] == "i,b,f,g,h"
+    assert text.splitlines()[1] == "3,1,0.1,-inf,1.0"
+    assert "\r" not in text
+
+
+def test_csv_float32_is_exact_and_empty_tables_come_back_float64(tmp_path):
+    e32 = np.array([0.1, 2.5], dtype=np.float32)
+    back = _roundtrip(tmp_path, {"energy": e32})
+    np.testing.assert_array_equal(back["energy"], e32.astype(np.float64))
+    empty = minima_table([], ndim=2)
+    back = _roundtrip(tmp_path, empty)
+    assert list(back) == ["index_0", "index_1", "energy"]
+    assert all(c.shape == (0,) and c.dtype == np.float64 for c in back.values())
+
+
+def test_write_csv_rejects_non_numeric_and_ragged_columns(tmp_path):
+    with pytest.raises(ValueError, match="dtype"):
+        write_csv(tmp_path / "t.csv", {"name": np.array(["a", "b"])})
+    with pytest.raises(ValueError, match="rows"):
+        write_csv(tmp_path / "t.csv", {"a": np.array([1, 2]), "b": np.array([1.0])})
+    with pytest.raises(ValueError, match="1-D"):
+        write_csv(tmp_path / "t.csv", {"a": np.zeros((2, 2))})
+    (tmp_path / "empty.csv").write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="header"):
+        read_csv(tmp_path / "empty.csv")
+
+
+def test_csv_round_trip_of_the_three_tables(tmp_path):
+    tree = MergeTree(find_watershed_segmentation(_row_grid()))
+    axes = {"r": np.array([0.0]), "c": np.arange(9, dtype=float) * 0.5}
+    idx = np.array([[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]])
+    for table in (minima_table(tree.ws.basins, axes), basins_table(tree, axes), path_table(idx, _row_grid()[0, :5], axes)):
+        back = _roundtrip(tmp_path, table)
+        assert list(back) == list(table)
+        for name in table:
+            assert back[name].dtype == table[name].dtype
+            np.testing.assert_array_equal(back[name], table[name])

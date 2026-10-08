@@ -136,3 +136,69 @@ def basins_table(tree, axes: Axes = None, *, min_persistence: float = 0.0) -> Ta
         _coordinate_columns(saddle_idx, axes, "saddle_"),
         {"saddle_energy": saddle_e, "persistence": persistence},
     )
+
+
+def _fmt_int(v) -> str:
+    return str(int(v))
+
+
+def _fmt_float(v) -> str:
+    return repr(float(v))
+
+
+def write_csv(path: str | PathLike[str], table: Mapping[str, npt.ArrayLike]) -> None:
+    """Write a table as CSV: header row, comma separated, ``\\n`` endings, UTF-8.
+
+    Integers and booleans are written as integers, floats as ``repr`` (the
+    shortest round-trip form, ``nan``/``inf``/``-inf`` spelled so). Any other
+    dtype is a ``ValueError``: the format is numeric only so that
+    :func:`read_csv` can always invert it. An existing file is overwritten.
+    """
+    columns: list[tuple[np.ndarray, object]] = []
+    length: int | None = None
+    for name, values in table.items():
+        col = np.asarray(values)
+        if col.ndim != 1:
+            raise ValueError(f"column {name!r} must be 1-D, got shape {col.shape}")
+        if length is None:
+            length = col.shape[0]
+        elif col.shape[0] != length:
+            raise ValueError(f"column {name!r} has {col.shape[0]} rows, expected {length}")
+        if col.dtype.kind in "iub":
+            columns.append((col, _fmt_int))
+        elif col.dtype.kind == "f":
+            columns.append((col, _fmt_float))
+        else:
+            raise ValueError(
+                f"column {name!r} has dtype {col.dtype}; tables hold integer, boolean and floating columns only"
+            )
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(list(table))
+        for r in range(length or 0):
+            writer.writerow([fmt(col[r]) for col, fmt in columns])
+
+
+def read_csv(path: str | PathLike[str]) -> Table:
+    """Read a file written by :func:`write_csv`.
+
+    A column is ``int64`` when every entry parses as an integer, else
+    ``float64``. A header-only file carries no type information: its columns
+    come back zero-length ``float64``. Not a general CSV reader.
+    """
+    with open(path, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    if not rows:
+        raise ValueError(f"{path}: empty file, expected a header row")
+    names, body = rows[0], rows[1:]
+    out: Table = {}
+    for c, name in enumerate(names):
+        cells = [row[c] for row in body]
+        if not cells:
+            out[name] = np.empty(0, dtype=np.float64)
+            continue
+        try:
+            out[name] = np.array([int(v) for v in cells], dtype=np.int64)
+        except ValueError:
+            out[name] = np.array([float(v) for v in cells], dtype=np.float64)
+    return out
