@@ -22,6 +22,7 @@ keywords = [
 ]
 dependencies = [
     "numpy >= 1.24",
+    "matplotlib >= 3.8",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
