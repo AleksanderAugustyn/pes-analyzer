@@ -81,6 +81,20 @@ def test_plot_map_levels_contours_mask():
         plot_map(values, mask=np.ones((2, 2), bool))
 
 
+def test_plot_map_hatches_only_the_masked_cells():
+    values = np.add.outer(np.arange(4.0), np.arange(5.0))
+    mask = np.zeros(values.shape, bool)
+    mask[0, 0] = mask[2, 3] = mask[3, 4] = True
+    _fig, ax = plt.subplots()
+    plot_map(values, ax=ax, mask=mask, colorbar=False)
+    (hatched,) = [c for c in ax.collections if c.get_hatch() == "///"]
+    paths = hatched.get_paths()
+    assert len(paths) == 3                                       # one quad per True cell, not the whole map
+    centres = sorted(tuple(np.round(p.vertices[:4].mean(axis=0), 6)) for p in paths)
+    assert centres == [(0.0, 0.0), (2.0, 3.0), (3.0, 4.0)]      # axis 0 horizontal, like the fill
+    assert (hatched.get_facecolor()[:, 3] == 0).all()            # no face: the fill shows through
+
+
 def test_plot_map_passes_mesh_kwargs():
     values = np.arange(6.0).reshape(2, 3)
     _fig, ax = plt.subplots()

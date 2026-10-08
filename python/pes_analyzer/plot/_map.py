@@ -83,9 +83,8 @@ def plot_map(
         ax.clabel(cs, fmt="%g", fontsize=7)
     if mask is not None:
         overlay = np.ma.masked_where(~m.T, np.ones(m.T.shape))
-        hatch = ax.pcolor(edges_x, edges_y, overlay, hatch="///", edgecolor="black", linewidth=0.0, zorder=2)
-        hatch.set_array(None)
-        hatch.set_facecolor("none")
+        # keep the masked array: pcolor draws only unmasked quads, and set_array(None) would unmask every one
+        ax.pcolor(edges_x, edges_y, overlay, hatch="///", facecolor="none", edgecolor="black", linewidth=0.0, zorder=2)
     if colorbar:
         ax.figure.colorbar(mesh, ax=ax, label=label)
     ax.set_xlabel(names[0])
