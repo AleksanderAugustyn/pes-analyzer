@@ -121,7 +121,7 @@ def plot_merge_tree(
                 x, e, _top = layout.branches[b]
                 marker = "o"
             ax.plot([x], [e], linestyle="none", marker=marker, markersize=7,
-                    markerfacecolor=color, markeredgecolor="black")
+                    color=color, markeredgecolor="black")
             ax.annotate(str(text), (x, e), xytext=(4, 0), textcoords="offset points", va="center", ha="left")
     lowest = min(e_min for _x, e_min, _top in layout.branches.values())
     pad = 0.02 * (layout.top - lowest) or 0.5

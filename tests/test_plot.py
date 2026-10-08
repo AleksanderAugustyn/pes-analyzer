@@ -95,6 +95,15 @@ def test_plot_map_hatches_only_the_masked_cells():
     assert (hatched.get_facecolor()[:, 3] == 0).all()            # no face: the fill shows through
 
 
+def test_plot_map_honours_a_masked_array():
+    values = np.ma.masked_greater(np.add.outer(np.arange(4.0), np.arange(5.0)), 5.0)
+    _fig, ax = plt.subplots()
+    plot_map(values, ax=ax, colorbar=False)
+    shown = _mesh(ax).get_array()
+    assert shown.mask.sum() == 3                                 # the cells above 5 stay blank, like NaN cells
+    np.testing.assert_array_equal(shown.mask.reshape(5, 4), values.mask.T)
+
+
 def test_plot_map_passes_mesh_kwargs():
     values = np.arange(6.0).reshape(2, 3)
     _fig, ax = plt.subplots()
@@ -231,3 +240,18 @@ def test_plot_merge_tree_rejects_undrawn_ids():
         plot_merge_tree(ws, max_basins=3, saddle_labels={1: "capped away"})
     with pytest.raises(ValueError, match="root"):
         plot_merge_tree(ws, saddle_labels={0: "no saddle"})
+
+
+def test_profile_and_tree_markers_leave_the_colour_cycle_alone():
+    energies = np.array([0.0, 2.0, 1.0, 3.0, 0.5])
+    _fig, ax = plt.subplots()
+    ax.set_prop_cycle(color=["r", "g", "b"])
+    for shift in (0.0, 1.0):
+        plot_profile(energies + shift, profile=analyze_path_profile(energies + shift), ax=ax)
+    lines = [ln for ln in ax.lines if ln.get_linestyle() != "None"]
+    assert [ln.get_color() for ln in lines] == ["r", "g"]        # the second path takes the next colour, as plot_path does
+    _fig, ax = plt.subplots()
+    ax.set_prop_cycle(color=["r", "g", "b"])
+    plot_merge_tree(_fan_ws(), ax=ax, labels={0: "a"}, saddle_labels={2: "b"})
+    (after,) = ax.plot([0.0], [0.0])
+    assert after.get_color() == "r"

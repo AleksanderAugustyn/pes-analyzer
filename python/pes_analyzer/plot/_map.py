@@ -53,7 +53,7 @@ def plot_map(
     labelled contour lines through the cell centres; ``mask`` hatches the
     ``True`` cells. ``mesh_kw`` reaches ``pcolormesh``. Returns ``ax``.
     """
-    v = np.asarray(values, dtype=np.float64)
+    v = np.ma.filled(np.ma.asarray(values, dtype=np.float64), np.nan)      # masked cells become NaN: blank
     if v.ndim != 2 or min(v.shape) < 2:
         raise ValueError(f"values must be a 2-D array with at least two cells per side, got shape {v.shape}")
     coords, names = _map_axes(v, axes)

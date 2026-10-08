@@ -894,7 +894,7 @@ Where `axes` is a mapping, its keys label the plot axes and name the coordinate 
 
 ### `plot_map(values, axes=None, *, ax=None, cmap=None, levels=None, contours=None, mask=None, colorbar=True, label="energy", **mesh_kw) -> Axes`
 
-- `values`: 2-D, at least two cells per side. `NaN` cells are blank.
+- `values`: 2-D, at least two cells per side. `NaN` cells, and the masked cells of a masked array, are blank.
 - `axes`: two 1-D arrays or a two-entry mapping (keys become the axis labels); `None` gives index coordinates labelled `index 0`, `index 1`.
 - The fill is `pcolormesh` on **cell edges**: midpoints between neighbouring coordinates, half a step beyond the ends. Unequal steps show as unequal cells; no value is interpolated. The mesh is `rasterized=True`, so a PDF stays small while axes and text remain vector. `mesh_kw` reaches `pcolormesh` (`vmin`, `vmax`, `norm`, `alpha`, …).
 - `levels`: a strictly increasing sequence of at least two boundaries → discrete bands (`BoundaryNorm(levels, cmap.N, extend="both")`); values outside the range take the colour map's under and over colours. For 1-unit bands with white above 20: `levels=np.arange(-10, 21)` and a colour map with `set_over("white")`. `levels` together with `norm` is a `ValueError`.

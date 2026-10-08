@@ -51,7 +51,7 @@ def plot_profile(
                 raise ValueError("profile refers to a step outside the path")
             if steps:
                 ax.plot(x[steps], v[steps], linestyle="none", marker=marker, markersize=7,
-                        markerfacecolor=line.get_color(), markeredgecolor="black")
+                        color=line.get_color(), markeredgecolor="black")   # an explicit colour keeps the cycle for the next path
     ax.set_xlabel(xlabel)
     ax.set_ylabel(label)
     return ax
